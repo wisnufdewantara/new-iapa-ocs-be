@@ -1,0 +1,272 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model app_settings {
+  setting_key   String    @id @db.VarChar(100)
+  description   String?   @db.VarChar(500)
+  label         String?   @db.VarChar(255)
+  setting_value String?   @db.VarChar(255)
+  updated_at    DateTime? @db.Timestamp(6)
+}
+
+model attendance {
+  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paper_id          String?        @db.Uuid
+  writer_id         String?        @db.Uuid
+  presence          Boolean        @default(false)
+  sent_ecertificate Boolean        @default(false)
+  certificate_url   String?        @db.VarChar(255)
+  participant_id    String?        @db.Uuid
+  conference_id     String?        @db.Uuid
+  papers            papers?        @relation(fields: [paper_id], references: [paper_id], onDelete: Cascade, onUpdate: NoAction)
+  paper_writers     paper_writers? @relation(fields: [writer_id], references: [writer_id], onDelete: Cascade, onUpdate: NoAction)
+  participant       participant?   @relation(fields: [participant_id], references: [attendance_id], onDelete: NoAction, onUpdate: NoAction, map: "fk8e0qxhwb9cqx14glphxbghwmc")
+  conference        conference?    @relation(fields: [conference_id], references: [conference_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_attendance_to_conference")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model conference {
+  conference_id                           String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conference_name                         String                 @unique @db.VarChar(255)
+  conference_date                         DateTime               @db.Date
+  created_at                              DateTime               @default(now()) @db.Timestamp(6)
+  best_paper                              String?                @db.Uuid
+  best_presenter                          String?                @db.Uuid
+  paper_certificate_sent                  Boolean                @default(false)
+  presenter_certificate_sent              Boolean                @default(false)
+  conference_end_date                     DateTime?              @db.Date
+  attendance                              attendance[]
+  papers_conference_best_paperTopapers    papers?                @relation("conference_best_paperTopapers", fields: [best_paper], references: [paper_id], onDelete: NoAction, onUpdate: NoAction)
+  paper_writers                           paper_writers?         @relation(fields: [best_presenter], references: [writer_id], onDelete: NoAction, onUpdate: NoAction)
+  conference_sub_theme                    conference_sub_theme[]
+  paper_reviewer                          paper_reviewer[]
+  papers_papers_conference_idToconference papers[]               @relation("papers_conference_idToconference")
+  participant                             participant[]
+  schedule                                schedule[]
+  sessions                                sessions[]
+}
+
+model conference_sub_theme {
+  conference_id String     @db.Uuid
+  sub_theme     String?    @db.VarChar(255)
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conference    conference @relation(fields: [conference_id], references: [conference_id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model invoices {
+  invoice_id    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payment_id    String        @db.Uuid
+  nomor_invoice String        @db.VarChar(255)
+  payment_date  DateTime      @default(now()) @db.Timestamp(6)
+  payment_from  String        @db.Uuid
+  nominal       String        @db.VarChar(255)
+  description   String?       @db.VarChar(255)
+  paper_writers paper_writers @relation(fields: [payment_from], references: [writer_id], onDelete: Cascade, onUpdate: NoAction)
+  payments      payments      @relation(fields: [payment_id], references: [payment_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model paper_reviewer {
+  review_id                                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paper_id                                 String      @db.Uuid
+  reviewer_id                              String      @db.Uuid
+  submitter_id                             String      @db.Uuid
+  paper_title                              String      @db.VarChar(255)
+  writer_name                              String      @db.VarChar(255)
+  reviewed_paper_url                       String?
+  assigned_date                            DateTime?   @default(now()) @db.Timestamp(6)
+  deadline                                 DateTime    @db.Date
+  accepted                                 Boolean?
+  manager_id                               String?     @db.Uuid
+  conference_id                            String?     @db.Uuid
+  users_paper_reviewer_manager_idTousers   users?      @relation("paper_reviewer_manager_idTousers", fields: [manager_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fkhf7u9lsxr9lut0flpvsjmor5i")
+  conference                               conference? @relation(fields: [conference_id], references: [conference_id], onDelete: Cascade, onUpdate: NoAction)
+  papers                                   papers      @relation(fields: [paper_id], references: [paper_id], onDelete: Cascade, onUpdate: NoAction)
+  users_paper_reviewer_reviewer_idTousers  users       @relation("paper_reviewer_reviewer_idTousers", fields: [reviewer_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+  users_paper_reviewer_submitter_idTousers users       @relation("paper_reviewer_submitter_idTousers", fields: [submitter_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([paper_id, reviewer_id], map: "uk117pbrqqapwelkxpb74glwi32")
+  @@unique([paper_id, reviewer_id], map: "unique_paper_reviewer")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model paper_writers {
+  writer_id       String           @id @db.Uuid
+  paper_id        String           @db.Uuid
+  first_name      String           @db.VarChar(255)
+  role            String?          @db.VarChar(50)
+  last_name       String           @default("") @db.VarChar(255)
+  gender          String           @db.VarChar(10)
+  affiliation     String           @db.VarChar(255)
+  email           String           @db.VarChar(255)
+  phone_number    String?          @db.VarChar(20)
+  member_status   Boolean?         @default(false)
+  certificate_url String?          @db.VarChar(255)
+  user_id         String?          @db.Uuid
+  attendance      attendance[]
+  conference      conference[]
+  invoices        invoices[]
+  users           users?           @relation(fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction, map: "fkg55k8aa56g9ygbgj9dftkw14j")
+  papers          papers           @relation(fields: [paper_id], references: [paper_id], onDelete: Cascade, onUpdate: NoAction)
+  payment_proofs  payment_proofs[]
+}
+
+model papers {
+  paper_id                                    String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paper_title                                 String           @db.VarChar(255)
+  submitter_id                                String?          @db.Uuid
+  upload_date                                 DateTime?        @default(now()) @db.Timestamp(6)
+  document_url                                String?
+  paper_status                                String           @db.VarChar(255)
+  conference_status                           String?          @db.VarChar(255)
+  sent_loa                                    Boolean          @default(false)
+  conference_id                               String?          @db.Uuid
+  sent_confirmation                           Boolean?         @default(false)
+  feedback_url                                String?
+  type                                        String?          @db.VarChar(255)
+  keywords                                    String?
+  sub_theme                                   String?          @db.VarChar(255)
+  abstract_text                               String?
+  attendance                                  attendance[]
+  conference_conference_best_paperTopapers    conference[]     @relation("conference_best_paperTopapers")
+  paper_reviewer                              paper_reviewer[]
+  paper_writers                               paper_writers[]
+  conference_papers_conference_idToconference conference?      @relation("papers_conference_idToconference", fields: [conference_id], references: [conference_id], onDelete: Cascade, onUpdate: NoAction)
+  users                                       users?           @relation(fields: [submitter_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+  payments                                    payments[]
+  schedule                                    schedule[]
+}
+
+model participant {
+  attendance_id         String       @id @db.Uuid
+  description           String?      @db.VarChar(255)
+  link_payment_upload   String?      @db.VarChar(255)
+  payment_status        String?      @db.VarChar(255)
+  sent_invoice          Boolean?
+  sent_price            Boolean?
+  total_amount          BigInt?
+  is_member             Boolean?
+  role                  String?      @db.VarChar(255)
+  conference_id         String?      @db.Uuid
+  payment_sender_name   String?      @db.VarChar(255)
+  payment_transfer_date String?      @db.VarChar(255)
+  attendance            attendance[]
+  conference            conference?  @relation(fields: [conference_id], references: [conference_id], onDelete: NoAction, onUpdate: NoAction, map: "fkgosru3n5mafb2b3spcy2saebx")
+  users                 users        @relation(fields: [attendance_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model payment_proofs {
+  proof_id      String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  payment_id    String         @db.Uuid
+  writer_id     String?        @db.Uuid
+  proof_url     String         @db.VarChar(255)
+  upload_date   DateTime?      @default(now()) @db.Timestamp(6)
+  sender_name   String?        @db.VarChar(255)
+  transfer_date String?        @db.VarChar(255)
+  payments      payments       @relation(fields: [payment_id], references: [payment_id], onDelete: Cascade, onUpdate: NoAction)
+  paper_writers paper_writers? @relation(fields: [writer_id], references: [writer_id], onUpdate: NoAction)
+}
+
+model payment_types {
+  payment_type_id String    @id @db.Uuid
+  builtin         Boolean
+  label           String    @db.VarChar(255)
+  type_key        String    @unique(map: "ukfacn33mtbkvjkkpv5rglm8o8g") @db.VarChar(100)
+  unique_code     String?   @db.VarChar(3)
+  updated_at      DateTime? @db.Timestamp(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model payments {
+  payment_id     String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paper_id       String?          @db.Uuid
+  submitter_id   String           @db.Uuid
+  total_amount   Decimal?         @db.Decimal(10, 2)
+  payment_status String?          @default("'waiting for calculation'::character varying") @db.VarChar(255)
+  due_date       DateTime?        @default(now()) @db.Timestamp(6)
+  sent_invoice   Boolean          @default(false)
+  payment_type   String           @default("team") @db.VarChar(255)
+  description    String?          @db.VarChar(255)
+  sent_price     Boolean?         @default(false)
+  invoices       invoices[]
+  payment_proofs payment_proofs[]
+  papers         papers?          @relation(fields: [paper_id], references: [paper_id], onDelete: Cascade, onUpdate: NoAction)
+  users          users            @relation(fields: [submitter_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model schedule {
+  schedule_id     String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paper_id        String     @db.Uuid
+  presenter_name  String     @db.VarChar(255)
+  schedule_date   DateTime   @db.Date
+  schedule_time   DateTime   @db.Time(6)
+  created_at      DateTime?  @default(now()) @db.Timestamp(6)
+  conference_id   String     @db.Uuid
+  presenter_email String?    @db.VarChar(255)
+  room            String?    @db.VarChar(255)
+  session_name    String?    @db.VarChar(255)
+  type            String?    @db.VarChar(255)
+  session_id      String?    @db.Uuid
+  sent            Boolean?
+  conference      conference @relation(fields: [conference_id], references: [conference_id], onDelete: Cascade, onUpdate: NoAction, map: "fk_schedule_conference")
+  sessions        sessions?  @relation(fields: [session_id], references: [session_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_schedule_session")
+  papers          papers     @relation(fields: [paper_id], references: [paper_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model sessions {
+  session_id    String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conference_id String     @db.Uuid
+  session_name  String     @db.VarChar(255)
+  session_date  DateTime?  @db.Date
+  type          String     @db.VarChar(255)
+  room          String?    @db.VarChar(255)
+  created_at    DateTime   @db.Timestamp(6)
+  schedule      schedule[]
+  conference    conference @relation(fields: [conference_id], references: [conference_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_sessions_conference")
+
+  @@unique([conference_id, session_name, session_date, type], map: "sessions_unique")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model users {
+  user_id                                           String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username                                          String           @unique @db.VarChar(255)
+  password                                          String
+  first_name                                        String           @db.VarChar(255)
+  last_name                                         String           @db.VarChar(255)
+  gender                                            String           @db.VarChar(255)
+  affiliation                                       String           @db.VarChar(255)
+  email                                             String           @unique @db.VarChar(255)
+  phone                                             String           @db.VarChar(255)
+  country                                           String?          @db.VarChar(255)
+  created_at                                        DateTime?        @default(now()) @db.Timestamp(6)
+  role                                              String           @default("Peserta") @db.VarChar(255)
+  hash_algorithm                                    String?          @default("bcrypt") @db.VarChar(255)
+  photo_url                                         String?
+  paper_reviewer_paper_reviewer_manager_idTousers   paper_reviewer[] @relation("paper_reviewer_manager_idTousers")
+  paper_reviewer_paper_reviewer_reviewer_idTousers  paper_reviewer[] @relation("paper_reviewer_reviewer_idTousers")
+  paper_reviewer_paper_reviewer_submitter_idTousers paper_reviewer[] @relation("paper_reviewer_submitter_idTousers")
+  paper_writers                                     paper_writers[]
+  papers                                            papers[]
+  participant                                       participant?
+  payments                                          payments[]
+}
+
+enum conference_status_enum {
+  Waiting
+  Accepted
+  Rejected
+}
+
+enum paper_status_enum {
+  Unassigned
+  Assigned
+  Accepted
+  Rejected
+}
