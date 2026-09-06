@@ -1,7 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { RegisterDto } from './dto/register.dto';
 
 @Injectable()
 export class AuthService {
@@ -9,6 +10,51 @@ export class AuthService {
     private prisma: PrismaService,
     private jwt: JwtService,
   ) {}
+
+  // Urutan validasi & aturan ini niru persis UserServiceImpl.createUser di
+  // CMS-IAPA-BE (Java) lama: cek password match dulu, baru cek username,
+  // baru email, dan role SELALU dipaksa "Peserta" apa pun yang dikirim FE
+  // (di Java lama field role di request itu ada tapi nggak pernah dipakai).
+  async register(dto: RegisterDto) {
+    if (dto.password !== dto.repeatPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    const existingUsername = await this.prisma.users.findUnique({ where: { username: dto.username } });
+    if (existingUsername) throw new ConflictException('Username already exists');
+
+    const existingEmail = await this.prisma.users.findUnique({ where: { email: dto.email } });
+    if (existingEmail) throw new ConflictException('Email already exists');
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+    const user = await this.prisma.users.create({
+      data: {
+        username: dto.username,
+        first_name: dto.firstName,
+        last_name: dto.lastName,
+        email: dto.email,
+        password: hashedPassword,
+        hash_algorithm: 'bcrypt',
+        gender: dto.gender,
+        affiliation: dto.affiliation,
+        phone: dto.phone,
+        country: dto.country,
+        role: 'Peserta',
+      },
+    });
+
+    return {
+      userId: user.user_id,
+      username: user.username,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      email: user.email,
+      role: user.role,
+      affiliation: user.affiliation,
+      phone: user.phone,
+    };
+  }
 
   async login(username: string, password: string) {
     const user = await this.prisma.users.findUnique({ where: { username } });

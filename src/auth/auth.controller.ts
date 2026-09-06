@@ -5,6 +5,7 @@ import { Roles } from '../common/roles.decorator';
 import { Role } from '../common/roles';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
 import { VerifyAdminGateDto } from './dto/verify-admin-gate.dto';
 
 @Controller('api/auth')
@@ -14,6 +15,11 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto.username, dto.password);
+  }
+
+  @Post('register')
+  register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
   }
 
   // Password kedua khusus buat masuk area /admin. Wajib sudah login
