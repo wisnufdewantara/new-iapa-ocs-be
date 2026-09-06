@@ -41,6 +41,7 @@ model conference {
   paper_certificate_sent                  Boolean                @default(false)
   presenter_certificate_sent              Boolean                @default(false)
   conference_end_date                     DateTime?              @db.Date
+  status                                  String                 @default("coming_soon") @db.VarChar(20)
   attendance                              attendance[]
   papers_conference_best_paperTopapers    papers?                @relation("conference_best_paperTopapers", fields: [best_paper], references: [paper_id], onDelete: NoAction, onUpdate: NoAction)
   paper_writers                           paper_writers?         @relation(fields: [best_presenter], references: [writer_id], onDelete: NoAction, onUpdate: NoAction)
