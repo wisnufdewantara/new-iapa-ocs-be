@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
@@ -20,6 +20,15 @@ export class AuthController {
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
+  }
+
+  // Dipakai buat auto-fill data penulis pertama di form Submit Paper
+  // (niru VSubmitPaper.vue lama), karena JWT payload cuma bawa
+  // sub/username/role, bukan affiliation/phone/gender.
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  me(@Req() req: any) {
+    return this.authService.findProfile(req.user.userId);
   }
 
   // Password kedua khusus buat masuk area /admin. Wajib sudah login

@@ -4,3 +4,7 @@ node_modules
 
 /generated/prisma
 SESSION_NOTES.md
+
+# Upload baru (Submit Paper dst) disimpan di disk server, bukan di-commit
+/uploads/*
+!/uploads/.gitkeep

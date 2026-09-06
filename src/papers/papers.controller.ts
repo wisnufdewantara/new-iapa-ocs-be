@@ -1,10 +1,27 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
 import { Role } from '../common/roles';
 import { PapersService } from './papers.service';
 import { UpdatePaperStatusDto } from './dto/update-paper-status.dto';
+import { SubmitPaperDto } from './dto/submit-paper.dto';
+import { papersUploadOptions } from './papers-upload.config';
 
 @Controller('api/papers')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -15,6 +32,23 @@ export class PapersController {
   @Get()
   findByConference(@Query('conferenceId', ParseUUIDPipe) conferenceId: string) {
     return this.papersService.findByConference(conferenceId);
+  }
+
+  @Get('mine')
+  @Roles(Role.Peserta)
+  findMine(@Req() req: any) {
+    return this.papersService.findMine((req.user as { userId: string }).userId);
+  }
+
+  @Post()
+  @Roles(Role.Peserta)
+  @UseInterceptors(FileInterceptor('document', papersUploadOptions))
+  submitPaper(@Req() req: any, @Body() dto: SubmitPaperDto, @UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Dokumen paper wajib diupload');
+    }
+    const documentUrl = `/uploads/papers/${file.filename}`;
+    return this.papersService.submitPaper((req.user as { userId: string }).userId, dto, documentUrl);
   }
 
   @Patch(':id/status')

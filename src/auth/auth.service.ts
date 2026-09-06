@@ -11,6 +11,30 @@ export class AuthService {
     private jwt: JwtService,
   ) {}
 
+  async findProfile(userId: string) {
+    const user = await this.prisma.users.findUnique({
+      where: { user_id: userId },
+      select: {
+        first_name: true,
+        last_name: true,
+        email: true,
+        gender: true,
+        affiliation: true,
+        phone: true,
+      },
+    });
+    return user
+      ? {
+          firstName: user.first_name,
+          lastName: user.last_name,
+          email: user.email,
+          gender: user.gender,
+          affiliation: user.affiliation,
+          phone: user.phone,
+        }
+      : null;
+  }
+
   // Urutan validasi & aturan ini niru persis UserServiceImpl.createUser di
   // CMS-IAPA-BE (Java) lama: cek password match dulu, baru cek username,
   // baru email, dan role SELALU dipaksa "Peserta" apa pun yang dikirim FE

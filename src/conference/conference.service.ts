@@ -64,6 +64,7 @@ export class ConferenceService {
     return this.prisma.conference.findFirst({
       where: { status: { not: 'ended' } },
       orderBy: { conference_date: 'asc' },
+      include: { conference_sub_theme: true },
     });
   }
 
