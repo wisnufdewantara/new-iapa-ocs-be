@@ -47,7 +47,7 @@ export class PapersController {
     if (!file) {
       throw new BadRequestException('Dokumen paper wajib diupload');
     }
-    const documentUrl = `/uploads/papers/${file.filename}`;
+    const documentUrl = `/api/uploads/papers/${file.filename}`;
     return this.papersService.submitPaper((req.user as { userId: string }).userId, dto, documentUrl);
   }
 
