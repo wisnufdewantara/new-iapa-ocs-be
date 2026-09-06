@@ -56,14 +56,16 @@ export class AuthService {
     };
   }
 
-  async login(username: string, password: string) {
-    const user = await this.prisma.users.findUnique({ where: { username } });
-    if (!user) throw new UnauthorizedException('Username atau password salah');
+  async login(usernameOrEmail: string, password: string) {
+    const user = await this.prisma.users.findFirst({
+      where: { OR: [{ username: usernameOrEmail }, { email: usernameOrEmail }] },
+    });
+    if (!user) throw new UnauthorizedException('Username/email atau password salah');
 
     // Password lama diverifikasi dengan bcrypt, sama seperti BCryptPasswordEncoder
     // di backend Java, jadi akun hasil migrasi tetap bisa login tanpa reset.
     const valid = await bcrypt.compare(password, user.password);
-    if (!valid) throw new UnauthorizedException('Username atau password salah');
+    if (!valid) throw new UnauthorizedException('Username/email atau password salah');
 
     const payload = {
       sub: user.user_id,

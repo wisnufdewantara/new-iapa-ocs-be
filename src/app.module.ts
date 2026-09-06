@@ -7,6 +7,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { PapersModule } from './papers/papers.module';
 import { SettingsModule } from './settings/settings.module';
 import { AssignReviewerModule } from './assign-reviewer/assign-reviewer.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AssignReviewerModule } from './assign-reviewer/assign-reviewer.module';
     PapersModule,
     SettingsModule,
     AssignReviewerModule,
+    UsersModule,
   ],
 })
 export class AppModule {}
