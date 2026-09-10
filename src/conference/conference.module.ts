@@ -7,5 +7,6 @@ import { ConferenceService } from './conference.service';
   imports: [AuthModule],
   controllers: [ConferenceController],
   providers: [ConferenceService],
+  exports: [ConferenceService],
 })
 export class ConferenceModule {}

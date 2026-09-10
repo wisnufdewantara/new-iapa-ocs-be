@@ -1,4 +1,4 @@
-import { IsString, MaxLength } from 'class-validator';
+import { IsString, IsUUID, MaxLength } from 'class-validator';
 
 // Dikirim sebagai multipart/form-data bareng file dokumen — `authors`
 // datang berupa string JSON (di-parse & divalidasi manual di
@@ -22,4 +22,7 @@ export class SubmitPaperDto {
 
   @IsString()
   authors: string;
+
+  @IsUUID()
+  conferenceId: string;
 }

@@ -21,6 +21,7 @@ export class AuthService {
         gender: true,
         affiliation: true,
         phone: true,
+        country: true,
       },
     });
     return user
@@ -31,6 +32,7 @@ export class AuthService {
           gender: user.gender,
           affiliation: user.affiliation,
           phone: user.phone,
+          country: user.country,
         }
       : null;
   }

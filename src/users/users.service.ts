@@ -1,10 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Role } from '../common/roles';
+import { AuditLogService } from '../common/audit-log.service';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private auditLog: AuditLogService,
+  ) {}
 
   async findAll() {
     const users = await this.prisma.users.findMany({
@@ -32,14 +35,18 @@ export class UsersService {
     }));
   }
 
-  async updateRole(userId: string, role: Role) {
+  async updateRole(userId: string, role: string, actorUserId?: string) {
     const user = await this.prisma.users.findUnique({ where: { user_id: userId } });
     if (!user) throw new NotFoundException('User tidak ditemukan');
+
+    const roleExists = await this.prisma.roles.findUnique({ where: { name: role } });
+    if (!roleExists) throw new NotFoundException(`Role "${role}" tidak ditemukan`);
 
     const updated = await this.prisma.users.update({
       where: { user_id: userId },
       data: { role },
     });
+    await this.auditLog.log(actorUserId, 'update_user_role', 'users', userId, role);
     return { userId: updated.user_id, role: updated.role };
   }
 }

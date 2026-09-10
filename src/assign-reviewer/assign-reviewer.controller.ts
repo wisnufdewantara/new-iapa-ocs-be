@@ -1,18 +1,15 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../common/roles.guard';
-import { Roles } from '../common/roles.decorator';
-import { Role } from '../common/roles';
+import { PermissionsGuard } from '../common/permissions.guard';
+import { RequirePermission } from '../common/permissions.decorator';
 import { AssignReviewerService } from './assign-reviewer.service';
 import { AssignReviewerDto } from './dto/assign-reviewer.dto';
 
-// Sama seperti AssignPaperReviewController Java lama: Manager, Reviewer,
-// Admin. (Reviewer cuma perlu buat lihat, aksi assign biasanya
-// Manager/Admin, tapi cek dilakukan di UI/menu.ts.)
+// /api/assign-reviewer/** -> butuh izin assign_reviewer:manage.
 @Controller('api/assign-reviewer')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.Manager)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermission('assign_reviewer', 'manage')
 export class AssignReviewerController {
   constructor(private assignReviewerService: AssignReviewerService) {}
 

@@ -1,8 +1,7 @@
 import { Body, Controller, Get, Post, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from './jwt-auth.guard';
-import { RolesGuard } from '../common/roles.guard';
-import { Roles } from '../common/roles.decorator';
-import { Role } from '../common/roles';
+import { PermissionsGuard } from '../common/permissions.guard';
+import { RequirePermission } from '../common/permissions.decorator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -31,12 +30,12 @@ export class AuthController {
     return this.authService.findProfile(req.user.userId);
   }
 
-  // Password kedua khusus buat masuk area /admin. Wajib sudah login
-  // sebagai Admin dulu (JwtAuthGuard + RolesGuard) sebelum boleh coba
-  // password gate ini — jadi ini lapisan tambahan, bukan pengganti login.
+  // Password kedua khusus buat masuk area /admin. Wajib sudah punya izin
+  // admin_gate:verify dulu (JwtAuthGuard + PermissionsGuard) sebelum boleh
+  // coba password gate ini — jadi ini lapisan tambahan, bukan pengganti login.
   @Post('verify-admin-gate')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.Admin)
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermission('admin_gate', 'verify')
   verifyAdminGate(@Body() dto: VerifyAdminGateDto) {
     if (dto.password !== process.env.ADMIN_GATE_PASSWORD) {
       throw new UnauthorizedException('Password admin gate salah');

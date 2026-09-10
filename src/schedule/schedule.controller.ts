@@ -1,14 +1,13 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../common/roles.guard';
-import { Roles } from '../common/roles.decorator';
-import { Role } from '../common/roles';
+import { PermissionsGuard } from '../common/permissions.guard';
+import { RequirePermission } from '../common/permissions.decorator';
 import { ScheduleService } from './schedule.service';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 
 @Controller('api/schedules')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.Manager)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermission('schedule', 'manage')
 export class ScheduleController {
   constructor(private scheduleService: ScheduleService) {}
 

@@ -15,6 +15,55 @@ model app_settings {
   updated_at    DateTime? @db.Timestamp(6)
 }
 
+model conference_settings {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conference_id String     @db.Uuid
+  setting_key   String     @db.VarChar(100)
+  setting_value String?    @db.VarChar(500)
+  updated_at    DateTime?  @updatedAt @db.Timestamp(6)
+  conference    conference @relation(fields: [conference_id], references: [conference_id], onDelete: Cascade)
+
+  @@unique([conference_id, setting_key])
+}
+
+model audit_log {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actor_user_id String?  @db.Uuid
+  action        String   @db.VarChar(100)
+  entity        String   @db.VarChar(100)
+  entity_id     String?  @db.VarChar(255)
+  detail        String?
+  created_at    DateTime @default(now()) @db.Timestamp(6)
+}
+
+model roles {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String             @unique @db.VarChar(100)
+  is_system        Boolean            @default(false)
+  created_at       DateTime           @default(now()) @db.Timestamp(6)
+  role_menu_items  role_menu_items[]
+  role_permissions role_permissions[]
+}
+
+model role_menu_items {
+  role_id  String @db.Uuid
+  menu_key String @db.VarChar(255)
+  roles    roles  @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@id([role_id, menu_key])
+}
+
+model role_permissions {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  role_id    String   @db.Uuid
+  module     String   @db.VarChar(100)
+  action     String   @db.VarChar(100)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  roles      roles    @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@unique([role_id, module, action])
+}
+
 model attendance {
   id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   paper_id          String?        @db.Uuid
@@ -43,6 +92,8 @@ model conference {
   conference_end_date                     DateTime?              @db.Date
   status                                  String                 @default("coming_soon") @db.VarChar(20)
   attendance                              attendance[]
+  conference_settings                     conference_settings[]
+  conference_posters                      conference_posters[]
   papers_conference_best_paperTopapers    papers?                @relation("conference_best_paperTopapers", fields: [best_paper], references: [paper_id], onDelete: NoAction, onUpdate: NoAction)
   paper_writers                           paper_writers?         @relation(fields: [best_presenter], references: [writer_id], onDelete: NoAction, onUpdate: NoAction)
   conference_sub_theme                    conference_sub_theme[]
@@ -51,6 +102,15 @@ model conference {
   participant                             participant[]
   schedule                                schedule[]
   sessions                                sessions[]
+}
+
+model conference_posters {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conference_id String     @db.Uuid
+  image_url     String     @db.VarChar(500)
+  sort_order    Int        @default(0)
+  created_at    DateTime   @default(now()) @db.Timestamp(6)
+  conference    conference @relation(fields: [conference_id], references: [conference_id], onDelete: Cascade)
 }
 
 model conference_sub_theme {

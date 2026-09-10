@@ -3,13 +3,19 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthorInput } from './dto/author-input.dto';
 import { SubmitPaperDto } from './dto/submit-paper.dto';
+import { AuditLogService } from '../common/audit-log.service';
+import { ConferenceService } from '../conference/conference.service';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^\+?\d+$/;
 
 @Injectable()
 export class PapersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private auditLog: AuditLogService,
+    private conferenceService: ConferenceService,
+  ) {}
 
   async findMine(userId: string) {
     const paper = await this.prisma.papers.findFirst({
@@ -61,12 +67,15 @@ export class PapersService {
     }
     authors.forEach((a) => this.validateAuthor(a));
 
-    const activeConference = await this.prisma.conference.findFirst({
-      where: { status: { not: 'ended' } },
-      orderBy: { conference_date: 'asc' },
-    });
+    // conferenceId dipilih user sendiri (bisa lebih dari 1 conference
+    // aktif bareng — dulu di sini ada query findFirst sendiri yang
+    // otomatis milih satu tanpa nanya user DAN nggak prioritaskan
+    // ongoing, itu bug duplikat dari versi lama ConferenceService yang
+    // udah dibenerin di tempat lain tapi kelewat di sini).
+    const activeConferences = await this.conferenceService.findActive();
+    const activeConference = activeConferences.find((c) => c.conference_id === dto.conferenceId);
     if (!activeConference) {
-      throw new BadRequestException('Tidak ada conference yang sedang aktif untuk submit paper');
+      throw new BadRequestException('Conference yang dipilih tidak aktif atau tidak ditemukan');
     }
 
     // Kalau email penulis cocok user terdaftar, kolom user_id (FK) diisi
@@ -143,10 +152,20 @@ export class PapersService {
     }));
   }
 
-  updateStatus(paperId: string, conferenceStatus: 'Waiting' | 'Accepted' | 'Rejected') {
-    return this.prisma.papers.update({
+  async updateStatus(paperId: string, conferenceStatus: 'Waiting' | 'Accepted' | 'Rejected', actorUserId?: string) {
+    const updated = await this.prisma.papers.update({
       where: { paper_id: paperId },
-      data: { conference_status: conferenceStatus },
+      data: {
+        conference_status: conferenceStatus,
+        // paper_status ikut di-set (bukan cuma conference_status) karena
+        // trigger DB trigger_create_payment (migrasi dari database lama)
+        // fire di paper_status = 'Accepted', bukan conference_status —
+        // tanpa ini baris payments nggak pernah otomatis kebuat buat
+        // paper baru yang di-accept lewat newocs.
+        paper_status: conferenceStatus === 'Waiting' ? undefined : conferenceStatus,
+      },
     });
+    await this.auditLog.log(actorUserId, `paper_${conferenceStatus.toLowerCase()}`, 'papers', paperId);
+    return updated;
   }
 }

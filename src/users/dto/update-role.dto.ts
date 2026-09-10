@@ -1,7 +1,7 @@
-import { IsIn } from 'class-validator';
-import { Role } from '../../common/roles';
+import { IsNotEmpty, IsString } from 'class-validator';
 
 export class UpdateRoleDto {
-  @IsIn(Object.values(Role))
-  role: Role;
+  @IsString()
+  @IsNotEmpty()
+  role: string;
 }

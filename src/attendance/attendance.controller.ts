@@ -1,16 +1,14 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../common/roles.guard';
-import { Roles } from '../common/roles.decorator';
-import { Role } from '../common/roles';
+import { PermissionsGuard } from '../common/permissions.guard';
+import { RequirePermission } from '../common/permissions.decorator';
 import { AttendanceService } from './attendance.service';
 import { ToggleParticipantAttendanceDto, ToggleTeamAttendanceDto } from './dto/toggle-attendance.dto';
 
-// Sama seperti AttendanceController Java lama: /api/attendance/** ->
-// Moderator, Manager, Admin.
+// /api/attendance/** -> butuh izin attendance:manage.
 @Controller('api/attendance')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.Manager, Role.Moderator)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermission('attendance', 'manage')
 export class AttendanceController {
   constructor(private attendanceService: AttendanceService) {}
 

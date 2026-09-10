@@ -15,17 +15,16 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../common/roles.guard';
-import { Roles } from '../common/roles.decorator';
-import { Role } from '../common/roles';
+import { PermissionsGuard } from '../common/permissions.guard';
+import { RequirePermission } from '../common/permissions.decorator';
 import { PapersService } from './papers.service';
 import { UpdatePaperStatusDto } from './dto/update-paper-status.dto';
 import { SubmitPaperDto } from './dto/submit-paper.dto';
 import { papersUploadOptions } from './papers-upload.config';
 
 @Controller('api/papers')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.Manager, Role.Reviewer)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermission('papers', 'review')
 export class PapersController {
   constructor(private papersService: PapersService) {}
 
@@ -35,13 +34,13 @@ export class PapersController {
   }
 
   @Get('mine')
-  @Roles(Role.Peserta)
+  @RequirePermission('papers', 'submit')
   findMine(@Req() req: any) {
     return this.papersService.findMine((req.user as { userId: string }).userId);
   }
 
   @Post()
-  @Roles(Role.Peserta)
+  @RequirePermission('papers', 'submit')
   @UseInterceptors(FileInterceptor('document', papersUploadOptions))
   submitPaper(@Req() req: any, @Body() dto: SubmitPaperDto, @UploadedFile() file: Express.Multer.File) {
     if (!file) {
@@ -52,7 +51,7 @@ export class PapersController {
   }
 
   @Patch(':id/status')
-  updateStatus(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdatePaperStatusDto) {
-    return this.papersService.updateStatus(id, dto.conferenceStatus);
+  updateStatus(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdatePaperStatusDto, @Req() req: any) {
+    return this.papersService.updateStatus(id, dto.conferenceStatus, (req.user as { userId: string }).userId);
   }
 }
