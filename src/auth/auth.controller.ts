@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from '../common/permissions.guard';
 import { RequirePermission } from '../common/permissions.decorator';
@@ -6,6 +6,8 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { VerifyAdminGateDto } from './dto/verify-admin-gate.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Controller('api/auth')
 export class AuthController {
@@ -28,6 +30,18 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   me(@Req() req: any) {
     return this.authService.findProfile(req.user.userId);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  updateMe(@Body() dto: UpdateProfileDto, @Req() req: any) {
+    return this.authService.updateProfile(req.user.userId, dto);
+  }
+
+  @Patch('me/password')
+  @UseGuards(JwtAuthGuard)
+  changePassword(@Body() dto: ChangePasswordDto, @Req() req: any) {
+    return this.authService.changePassword(req.user.userId, dto);
   }
 
   // Password kedua khusus buat masuk area /admin. Wajib sudah punya izin

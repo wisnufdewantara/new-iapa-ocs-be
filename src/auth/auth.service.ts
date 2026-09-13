@@ -3,6 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Injectable()
 export class AuthService {
@@ -80,6 +82,36 @@ export class AuthService {
       affiliation: user.affiliation,
       phone: user.phone,
     };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const updated = await this.prisma.users.update({
+      where: { user_id: userId },
+      data: {
+        first_name: dto.firstName,
+        last_name: dto.lastName,
+        gender: dto.gender,
+        affiliation: dto.affiliation,
+        phone: dto.phone,
+        country: dto.country,
+      },
+    });
+    return this.findProfile(updated.user_id);
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.users.findUnique({ where: { user_id: userId } });
+    if (!user) throw new BadRequestException('User tidak ditemukan');
+
+    const valid = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!valid) throw new UnauthorizedException('Password saat ini salah');
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.users.update({
+      where: { user_id: userId },
+      data: { password: hashedPassword, hash_algorithm: 'bcrypt' },
+    });
+    return { changed: true };
   }
 
   async login(usernameOrEmail: string, password: string) {
