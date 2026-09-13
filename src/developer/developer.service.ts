@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { FunctionalTestService } from '../functional-test/functional-test.service';
 
 // Dashboard developer (admin-only) — CUMA metrik sistem/agregat, TIDAK
 // PERNAH mengembalikan data mentah/PII user atau secret apa pun (password,
@@ -8,7 +9,18 @@ import { PrismaService } from '../prisma/prisma.service';
 // agregat, bukan baris data individual.
 @Injectable()
 export class DeveloperService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private functionalTest: FunctionalTestService,
+  ) {}
+
+  async getFunctionalTestConfig() {
+    return { enabled: await this.functionalTest.isEnabled() };
+  }
+
+  async setFunctionalTestConfig(enabled: boolean) {
+    return this.functionalTest.setEnabled(enabled);
+  }
 
   async status() {
     // eslint-disable-next-line @typescript-eslint/no-var-requires

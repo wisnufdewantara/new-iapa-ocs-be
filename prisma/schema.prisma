@@ -15,6 +15,17 @@ model app_settings {
   updated_at    DateTime? @db.Timestamp(6)
 }
 
+// Hasil pengisian lembar UAT publik (/functional-test), aktif/nonaktif
+// diatur admin (app_settings key 'functional_test.enabled'). test_id
+// merujuk ke ID skenario tetap di FE (TC-01, dst), bukan FK ke tabel lain.
+model functional_test_result {
+  test_id    String   @id @db.VarChar(20)
+  status     String   @default("pending") @db.VarChar(20)
+  note       String?  @db.VarChar(500)
+  tester     String?  @db.VarChar(100)
+  updated_at DateTime @default(now()) @updatedAt
+}
+
 model conference_settings {
   id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   conference_id String     @db.Uuid

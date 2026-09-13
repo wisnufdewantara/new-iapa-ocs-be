@@ -16,6 +16,7 @@ import { CertificateModule } from './certificate/certificate.module';
 import { PaymentModule } from './payment/payment.module';
 import { ParticipantModule } from './participant/participant.module';
 import { DeveloperModule } from './developer/developer.module';
+import { FunctionalTestModule } from './functional-test/functional-test.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { DeveloperModule } from './developer/developer.module';
     PaymentModule,
     ParticipantModule,
     DeveloperModule,
+    FunctionalTestModule,
   ],
 })
 export class AppModule {}

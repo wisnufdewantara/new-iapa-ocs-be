@@ -18,6 +18,7 @@ export const MENU_KEYS = [
   '/admin/permissions',
   '/admin/settings',
   '/admin/developer',
+  '/guide',
 ] as const;
 
 // Role default (6 sistem) + menu bawaannya, direkonstruksi dari roles:
@@ -38,8 +39,9 @@ export const DEFAULT_ROLE_MENU: Record<string, string[]> = {
     '/admin/permissions',
     '/admin/settings',
     '/admin/developer',
+    '/guide',
   ],
-  Peserta: ['/dashboard', '/papers/submit', '/join', '/payment'],
+  Peserta: ['/dashboard', '/papers/submit', '/join', '/payment', '/guide'],
   Manager: [
     '/dashboard',
     '/conferences',
@@ -48,8 +50,9 @@ export const DEFAULT_ROLE_MENU: Record<string, string[]> = {
     '/papers/assign-reviewer',
     '/papers/loa',
     '/certificates',
+    '/guide',
   ],
-  Admin_Keuangan: ['/dashboard', '/payment/manage'],
-  Reviewer: ['/papers/review'],
-  Moderator: ['/attendance'],
+  Admin_Keuangan: ['/dashboard', '/payment/manage', '/guide'],
+  Reviewer: ['/papers/review', '/guide'],
+  Moderator: ['/attendance', '/guide'],
 };
