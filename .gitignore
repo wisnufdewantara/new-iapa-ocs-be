@@ -9,3 +9,6 @@ SESSION_NOTES.md
 # Upload baru (Submit Paper dst) disimpan di disk server, bukan di-commit
 /uploads/*
 !/uploads/.gitkeep
+
+# Lock file cron sync (scripts/sync-from-supabase.mjs), dibuat runtime
+scripts/.sync.lock
