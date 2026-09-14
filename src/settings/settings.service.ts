@@ -17,6 +17,7 @@ export const SYSTEM_SETTING_KEYS = [
   { key: 'payment.bank_name', label: 'Nama Bank' },
   { key: 'payment.bank_holder', label: 'Nama Pemilik Rekening' },
   { key: 'payment.bank_account_number', label: 'Nomor Rekening' },
+  { key: 'payment.deadline_text', label: 'Tenggat Pembayaran (teks bebas, mis. "7 hari setelah invoice diterima")' },
 ] as const;
 
 @Injectable()

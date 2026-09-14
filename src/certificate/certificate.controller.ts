@@ -35,9 +35,18 @@ export class CertificateController {
     return this.certificateService.send(attendanceId, type);
   }
 
+  // Sengaja TIDAK di-await: kirim ke banyak penerima sekaligus bisa
+  // makan waktu lama dan bikin request timeout (masalah yang sama
+  // persis yang bikin sistem lama dipindah ke background, lihat
+  // AsyncConfig.java/commit 1ddce13). Response balik langsung sebagai
+  // "diproses", FE cukup refresh list buat lihat progress lewat flag
+  // sentCertificate per baris yang udah ada di endpoint GET.
   @Post('send-bulk')
   sendBulk(@Body('items') items: { attendanceId: string; type: CertificateType }[]) {
-    return this.certificateService.sendBulk(items);
+    this.certificateService.sendBulk(items).catch((err) => {
+      console.error('sendBulk sertifikat gagal total (di luar per-item try/catch):', err);
+    });
+    return { queued: true, total: items.length };
   }
 
   @Post('awards/:conferenceId/:award')

@@ -13,6 +13,7 @@ export async function generateInvoicePdf(params: {
   bankName: string;
   bankHolder: string;
   bankAccountNumber: string;
+  deadlineText?: string;
 }): Promise<Buffer> {
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([595.28, 841.89]); // A4
@@ -45,6 +46,10 @@ export async function generateInvoicePdf(params: {
   draw('Transfer ke:', { bold: true });
   draw(`${params.bankName} — ${params.bankHolder}`);
   draw(`No. Rekening: ${params.bankAccountNumber}`);
+  if (params.deadlineText) {
+    y -= 4;
+    draw(`Tenggat pembayaran: ${params.deadlineText}`, { bold: true, color: [180 / 255, 60 / 255, 30 / 255] });
+  }
   y -= 10;
   draw('Mohon transfer jumlah PERSIS sesuai nominal di atas (termasuk kode unik', { size: 10 });
   draw('3 digit terakhir) untuk memudahkan verifikasi pembayaran.', { size: 10 });

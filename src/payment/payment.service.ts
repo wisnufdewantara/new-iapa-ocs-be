@@ -31,13 +31,18 @@ export class PaymentService {
 
   private async bankInfo() {
     const rows = await this.prisma.app_settings.findMany({
-      where: { setting_key: { in: ['payment.bank_name', 'payment.bank_holder', 'payment.bank_account_number'] } },
+      where: {
+        setting_key: {
+          in: ['payment.bank_name', 'payment.bank_holder', 'payment.bank_account_number', 'payment.deadline_text'],
+        },
+      },
     });
     const map = Object.fromEntries(rows.map((r) => [r.setting_key, r.setting_value]));
     return {
       bankName: map['payment.bank_name'] || '',
       bankHolder: map['payment.bank_holder'] || '',
       bankAccountNumber: map['payment.bank_account_number'] || '',
+      deadlineText: map['payment.deadline_text'] || '',
     };
   }
 
@@ -199,7 +204,8 @@ export class PaymentService {
     await this.mailer.sendMail(
       payment.users.email,
       'Invoice Pembayaran — IAPA Conference',
-      `<p>Dear ${payment.users.first_name},</p><p>Terlampir invoice pembayaran untuk paper Anda.</p>`,
+      `<p>Dear ${payment.users.first_name},</p><p>Terlampir invoice pembayaran untuk paper Anda.</p>` +
+        (bank.deadlineText ? `<p><strong>Tenggat pembayaran: ${bank.deadlineText}</strong></p>` : ''),
       [{ filename: `Invoice-${paymentId}.pdf`, content: pdf }],
     );
     await this.prisma.payments.update({ where: { payment_id: paymentId }, data: { sent_invoice: true } });
@@ -229,7 +235,8 @@ export class PaymentService {
     await this.mailer.sendMail(
       participant.users.email,
       'Invoice Pembayaran — IAPA Conference',
-      `<p>Dear ${participant.users.first_name},</p><p>Terlampir invoice pembayaran partisipasi Anda.</p>`,
+      `<p>Dear ${participant.users.first_name},</p><p>Terlampir invoice pembayaran partisipasi Anda.</p>` +
+        (bank.deadlineText ? `<p><strong>Tenggat pembayaran: ${bank.deadlineText}</strong></p>` : ''),
       [{ filename: `Invoice-${attendanceId}.pdf`, content: pdf }],
     );
     await this.prisma.participant.update({ where: { attendance_id: attendanceId }, data: { sent_invoice: true } });

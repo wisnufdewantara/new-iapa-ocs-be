@@ -5,6 +5,7 @@ dist
 
 /generated/prisma
 SESSION_NOTES.md
+CUTOVER_CHECKLIST.md
 
 # Upload baru (Submit Paper dst) disimpan di disk server, bukan di-commit
 /uploads/*
