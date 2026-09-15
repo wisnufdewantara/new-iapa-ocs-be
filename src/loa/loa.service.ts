@@ -6,6 +6,7 @@ import { PDFDocument, rgb } from 'pdf-lib';
 const fontkit = require('@pdf-lib/fontkit');
 import { PrismaService } from '../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
+import { EmailTemplateService } from '../email-template/email-template.service';
 
 const TEMPLATE_PATH = join(process.cwd(), 'assets', 'templates', 'LoA.pdf');
 const FONT_PATH = join(process.cwd(), 'assets', 'fonts', 'Inter_18pt-SemiBold.ttf');
@@ -57,6 +58,7 @@ export class LoaService {
   constructor(
     private prisma: PrismaService,
     private mailer: MailerService,
+    private emailTemplate: EmailTemplateService,
   ) {}
 
   findByConference(conferenceId: string) {
@@ -173,10 +175,14 @@ export class LoaService {
   async send(paperId: string) {
     const paper = await this.paperDetail(paperId);
     const pdfBytes = await this.generatePdf(paperId);
+    const { subject, bodyHtml } = await this.emailTemplate.render('loa', {
+      firstName: paper.users!.first_name,
+      paperTitle: paper.paper_title,
+    });
     await this.mailer.sendMail(
       paper.users!.email,
-      'Letter of Acceptance — IAPA Conference',
-      `<p>Dear ${paper.users!.first_name},</p><p>Terlampir Letter of Acceptance untuk paper Anda: <strong>${paper.paper_title}</strong>.</p>`,
+      subject,
+      bodyHtml,
       [{ filename: `LoA-${paper.paper_id}.pdf`, content: pdfBytes }],
     );
     await this.prisma.papers.update({ where: { paper_id: paperId }, data: { sent_loa: true } });

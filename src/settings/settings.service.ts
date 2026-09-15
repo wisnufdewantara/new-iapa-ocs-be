@@ -13,7 +13,7 @@ export const SYSTEM_SETTING_KEYS = [
   { key: 'smtp.user', label: 'SMTP User' },
   { key: 'smtp.password', label: 'SMTP Password' },
   { key: 'smtp.from_name', label: 'Nama Pengirim Email' },
-  { key: 'payment_gateway.api_key', label: 'Payment Gateway API Key' },
+  { key: 'payment.method.manual_transfer_enabled', label: 'Metode: Transfer Manual aktif' },
   { key: 'payment.bank_name', label: 'Nama Bank' },
   { key: 'payment.bank_holder', label: 'Nama Pemilik Rekening' },
   { key: 'payment.bank_account_number', label: 'Nomor Rekening' },
@@ -66,15 +66,16 @@ export class SettingsService {
     return { version: pkg.version as string, dbConnected };
   }
 
-  async testSmtp(actorUserId: string) {
+  async testSmtp(actorUserId: string, to?: string) {
     const user = await this.prisma.users.findUnique({ where: { user_id: actorUserId }, select: { email: true } });
     if (!user) throw new Error('User tidak ditemukan');
+    const recipient = to || user.email;
     await this.mailer.sendMail(
-      user.email,
+      recipient,
       'Test SMTP — newocs',
       '<p>Ini email percobaan dari halaman System Settings newocs. Kalau kamu menerima ini, konfigurasi SMTP sudah benar.</p>',
     );
-    return { sent: true, to: user.email };
+    return { sent: true, to: recipient };
   }
 
   auditLogRecent(limit: number) {

@@ -26,6 +26,19 @@ model functional_test_result {
   updated_at DateTime @default(now()) @updatedAt
 }
 
+// Override subject/body email notifikasi (LoA, sertifikat, invoice).
+// Kalau baris untuk satu template_key belum ada, FE/BE pakai default
+// hardcode dari DEFAULT_EMAIL_TEMPLATES (lihat email-template.constant.ts)
+// — baris di sini cuma dibuat begitu admin pertama kali nyimpen
+// perubahan buat template itu.
+model email_template {
+  template_key String   @id @db.VarChar(50)
+  label        String   @db.VarChar(255)
+  subject      String   @db.VarChar(255)
+  body_html    String
+  updated_at   DateTime @default(now()) @updatedAt
+}
+
 model conference_settings {
   id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   conference_id String     @db.Uuid

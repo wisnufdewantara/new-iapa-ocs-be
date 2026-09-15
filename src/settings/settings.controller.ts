@@ -4,6 +4,7 @@ import { PermissionsGuard } from '../common/permissions.guard';
 import { RequirePermission } from '../common/permissions.decorator';
 import { SettingsService } from './settings.service';
 import { UpdateSettingDto } from './dto/update-setting.dto';
+import { TestSmtpDto } from './dto/test-smtp.dto';
 
 // /api/settings/** sekarang murni System Settings (level infrastruktur
 // aplikasi) — setting per-conference (mis. tenggat pembayaran) pindah ke
@@ -30,8 +31,8 @@ export class SettingsController {
   }
 
   @Post('test-smtp')
-  testSmtp(@Req() req: any) {
-    return this.settingsService.testSmtp((req.user as { userId: string }).userId);
+  testSmtp(@Body() dto: TestSmtpDto, @Req() req: any) {
+    return this.settingsService.testSmtp((req.user as { userId: string }).userId, dto.to);
   }
 
   @Get('audit-log')

@@ -17,6 +17,7 @@ import { PaymentModule } from './payment/payment.module';
 import { ParticipantModule } from './participant/participant.module';
 import { DeveloperModule } from './developer/developer.module';
 import { FunctionalTestModule } from './functional-test/functional-test.module';
+import { EmailTemplateModule } from './email-template/email-template.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { FunctionalTestModule } from './functional-test/functional-test.module';
     ParticipantModule,
     DeveloperModule,
     FunctionalTestModule,
+    EmailTemplateModule,
   ],
 })
 export class AppModule {}

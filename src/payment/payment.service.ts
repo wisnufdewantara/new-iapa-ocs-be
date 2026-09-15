@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
 import { AuditLogService } from '../common/audit-log.service';
+import { EmailTemplateService } from '../email-template/email-template.service';
 import { presenterFee } from './pricing.constant';
 import { applyUniqueCode } from './unique-code.util';
 import { generateInvoicePdf } from './invoice-pdf.util';
@@ -12,6 +13,7 @@ export class PaymentService {
     private prisma: PrismaService,
     private mailer: MailerService,
     private auditLog: AuditLogService,
+    private emailTemplate: EmailTemplateService,
   ) {}
 
   // payments.total_amount NULL = trigger DB baru bikin baris placeholder
@@ -201,11 +203,15 @@ export class PaymentService {
       transferAmount,
       ...bank,
     });
+    const { subject, bodyHtml } = await this.emailTemplate.render('invoice', {
+      firstName: payment.users.first_name,
+      description: 'untuk paper Anda',
+      deadlineBlock: bank.deadlineText ? `<p><strong>Tenggat pembayaran: ${bank.deadlineText}</strong></p>` : '',
+    });
     await this.mailer.sendMail(
       payment.users.email,
-      'Invoice Pembayaran — IAPA Conference',
-      `<p>Dear ${payment.users.first_name},</p><p>Terlampir invoice pembayaran untuk paper Anda.</p>` +
-        (bank.deadlineText ? `<p><strong>Tenggat pembayaran: ${bank.deadlineText}</strong></p>` : ''),
+      subject,
+      bodyHtml,
       [{ filename: `Invoice-${paymentId}.pdf`, content: pdf }],
     );
     await this.prisma.payments.update({ where: { payment_id: paymentId }, data: { sent_invoice: true } });
@@ -232,11 +238,15 @@ export class PaymentService {
       transferAmount,
       ...bank,
     });
+    const { subject, bodyHtml } = await this.emailTemplate.render('invoice', {
+      firstName: participant.users.first_name,
+      description: 'partisipasi Anda',
+      deadlineBlock: bank.deadlineText ? `<p><strong>Tenggat pembayaran: ${bank.deadlineText}</strong></p>` : '',
+    });
     await this.mailer.sendMail(
       participant.users.email,
-      'Invoice Pembayaran — IAPA Conference',
-      `<p>Dear ${participant.users.first_name},</p><p>Terlampir invoice pembayaran partisipasi Anda.</p>` +
-        (bank.deadlineText ? `<p><strong>Tenggat pembayaran: ${bank.deadlineText}</strong></p>` : ''),
+      subject,
+      bodyHtml,
       [{ filename: `Invoice-${attendanceId}.pdf`, content: pdf }],
     );
     await this.prisma.participant.update({ where: { attendance_id: attendanceId }, data: { sent_invoice: true } });

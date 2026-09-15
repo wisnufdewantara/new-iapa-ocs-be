@@ -6,6 +6,7 @@ import { PDFDocument, rgb } from 'pdf-lib';
 const fontkit = require('@pdf-lib/fontkit');
 import { PrismaService } from '../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
+import { EmailTemplateService } from '../email-template/email-template.service';
 
 const TEMPLATE_PATH = join(process.cwd(), 'assets', 'templates', 'Certificate_2026.pdf');
 const FONT_PATH = join(process.cwd(), 'assets', 'fonts', 'DMSerifDisplay-Italic.ttf');
@@ -23,6 +24,7 @@ export class CertificateService {
   constructor(
     private prisma: PrismaService,
     private mailer: MailerService,
+    private emailTemplate: EmailTemplateService,
   ) {}
 
   // Dua tab niru domain Attendance yang sudah ada (Tim/Presenter vs
@@ -124,10 +126,11 @@ export class CertificateService {
   async send(attendanceId: string, type: CertificateType) {
     const recipient = await this.attendanceRecipient(attendanceId);
     const pdfBytes = await this.generatePdf(recipient.name, type);
+    const { subject, bodyHtml } = await this.emailTemplate.render('certificate', { name: recipient.name, type });
     await this.mailer.sendMail(
       recipient.email,
-      `Sertifikat ${type} — IAPA Conference`,
-      `<p>Dear ${recipient.name},</p><p>Terlampir e-sertifikat Anda sebagai <strong>${type}</strong>.</p>`,
+      subject,
+      bodyHtml,
       [{ filename: `Sertifikat-${attendanceId}.pdf`, content: pdfBytes }],
     );
     await this.prisma.attendance.update({
@@ -169,10 +172,14 @@ export class CertificateService {
       const presenter = conference.papers_conference_best_paperTopapers?.paper_writers[0];
       if (!presenter) throw new NotFoundException('Best Paper belum diatur untuk conference ini');
       const pdfBytes = await this.generatePdf(`${presenter.first_name} ${presenter.last_name}`, 'Best Paper');
+      const { subject, bodyHtml } = await this.emailTemplate.render('certificate_award', {
+        firstName: presenter.first_name,
+        awardLabel: 'Best Paper',
+      });
       await this.mailer.sendMail(
         presenter.email,
-        'Sertifikat Best Paper — IAPA Conference',
-        `<p>Dear ${presenter.first_name},</p><p>Selamat! Terlampir e-sertifikat Best Paper Anda.</p>`,
+        subject,
+        bodyHtml,
         [{ filename: `Sertifikat-BestPaper-${conferenceId}.pdf`, content: pdfBytes }],
       );
       await this.prisma.conference.update({ where: { conference_id: conferenceId }, data: { paper_certificate_sent: true } });
@@ -180,10 +187,14 @@ export class CertificateService {
       const writer = conference.paper_writers;
       if (!writer) throw new NotFoundException('Best Presenter belum diatur untuk conference ini');
       const pdfBytes = await this.generatePdf(`${writer.first_name} ${writer.last_name}`, 'Best Presenter');
+      const { subject, bodyHtml } = await this.emailTemplate.render('certificate_award', {
+        firstName: writer.first_name,
+        awardLabel: 'Best Presenter',
+      });
       await this.mailer.sendMail(
         writer.email,
-        'Sertifikat Best Presenter — IAPA Conference',
-        `<p>Dear ${writer.first_name},</p><p>Selamat! Terlampir e-sertifikat Best Presenter Anda.</p>`,
+        subject,
+        bodyHtml,
         [{ filename: `Sertifikat-BestPresenter-${conferenceId}.pdf`, content: pdfBytes }],
       );
       await this.prisma.conference.update({ where: { conference_id: conferenceId }, data: { presenter_certificate_sent: true } });
