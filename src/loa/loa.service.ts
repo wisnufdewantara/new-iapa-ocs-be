@@ -81,7 +81,7 @@ export class LoaService {
   private async paperDetail(paperId: string) {
     const paper = await this.prisma.papers.findUnique({
       where: { paper_id: paperId },
-      include: { users: true, paper_writers: true },
+      include: { users: true, paper_writers: { orderBy: { writer_order: 'asc' } } },
     });
     if (!paper) throw new NotFoundException('Paper tidak ditemukan');
     if (!paper.users) throw new NotFoundException('Submitter paper tidak ditemukan');

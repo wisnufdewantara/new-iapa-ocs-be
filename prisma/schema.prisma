@@ -185,6 +185,11 @@ model paper_writers {
   paper_id        String           @db.Uuid
   first_name      String           @db.VarChar(255)
   role            String?          @db.VarChar(50)
+  // Urutan penulis sesuai submission (0 = penulis pertama). Kolom BARU
+  // (2026-09-15) — baris lama default 0, jadi urutannya di antara
+  // mereka sendiri nggak berubah dari perilaku lama; submission baru
+  // ke depannya selalu diisi eksplisit dari index array authors.
+  writer_order    Int?             @default(0)
   last_name       String           @default("") @db.VarChar(255)
   gender          String           @db.VarChar(10)
   affiliation     String           @db.VarChar(255)

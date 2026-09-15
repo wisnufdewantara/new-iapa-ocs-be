@@ -102,7 +102,7 @@ export class PapersService {
         keywords: dto.keywords,
         sub_theme: dto.subTheme,
         paper_writers: {
-          create: authors.map((a) => ({
+          create: authors.map((a, index) => ({
             writer_id: randomUUID(),
             first_name: a.firstName.trim(),
             last_name: a.lastName.trim(),
@@ -113,6 +113,7 @@ export class PapersService {
             member_status: a.statusMember ?? false,
             role: 'presenter',
             user_id: userIdByEmail.get(a.email.trim().toLowerCase()),
+            writer_order: index,
           })),
         },
       },
@@ -135,6 +136,7 @@ export class PapersService {
         sub_theme: true,
         paper_writers: {
           where: { role: 'presenter' },
+          orderBy: { writer_order: 'asc' },
           select: { first_name: true, last_name: true, email: true },
         },
       },
@@ -149,6 +151,7 @@ export class PapersService {
       subTheme: p.sub_theme,
       presenterName: p.paper_writers[0] ? `${p.paper_writers[0].first_name} ${p.paper_writers[0].last_name}` : null,
       presenterEmail: p.paper_writers[0]?.email ?? null,
+      authorNames: p.paper_writers.map((w) => `${w.first_name} ${w.last_name}`),
     }));
   }
 
