@@ -78,6 +78,17 @@ export class PapersService {
       throw new BadRequestException('Conference yang dipilih tidak aktif atau tidak ditemukan');
     }
 
+    // Toggle per-conference buat nutup submission (mis. lewat tenggat),
+    // independen dari status conference (yang juga ngatur banyak hal
+    // lain kayak tampil di homepage) — default kebuka kalau belum
+    // pernah diatur admin, biar conference lama nggak keblokir tiba-tiba.
+    const submissionSetting = await this.prisma.conference_settings.findUnique({
+      where: { conference_id_setting_key: { conference_id: dto.conferenceId, setting_key: 'papers_submission_open' } },
+    });
+    if (submissionSetting?.setting_value === 'false') {
+      throw new BadRequestException('Submission paper untuk conference ini sudah ditutup');
+    }
+
     // Kalau email penulis cocok user terdaftar, kolom user_id (FK) diisi
     // biar linknya konsisten — writer_id (PK) tetap UUID baru tiap kali,
     // biar aman kalau orang yang sama jadi co-author di paper lain juga.

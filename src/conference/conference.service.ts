@@ -93,6 +93,10 @@ export class ConferenceService {
       include: {
         conference_sub_theme: true,
         conference_posters: { orderBy: { sort_order: 'asc' } },
+        // Diikutkan biar FE publik (mis. Submit Paper) bisa cek toggle
+        // papers_submission_open tanpa perlu endpoint admin-only
+        // /conferences/:id/settings (RequirePermission('conference','update')).
+        conference_settings: true,
       },
     });
     const priority = (status: string) => (status === 'ongoing' ? 0 : 1);
