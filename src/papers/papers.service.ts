@@ -167,6 +167,13 @@ export class PapersService {
   }
 
   async updateStatus(paperId: string, conferenceStatus: 'Waiting' | 'Accepted' | 'Rejected', actorUserId?: string) {
+    // 'Waiting' dipakai juga buat "Batalkan Keputusan" (cancel decision) —
+    // balikin paper_status ke Unassigned secara eksplisit, BUKAN `undefined`
+    // (yang di Prisma artinya "jangan sentuh field ini"). Sebelumnya bug
+    // ini bikin conference_status balik ke Waiting tapi paper_status
+    // nyangkut di Accepted/Rejected lama — dua kolom itu jadi nggak
+    // konsisten, tepat masalah yang bikin data 33 paper harus dibenerin
+    // manual lewat SQL di sistem lama (lihat SESSION_NOTES.md).
     const updated = await this.prisma.papers.update({
       where: { paper_id: paperId },
       data: {
@@ -176,10 +183,11 @@ export class PapersService {
         // fire di paper_status = 'Accepted', bukan conference_status —
         // tanpa ini baris payments nggak pernah otomatis kebuat buat
         // paper baru yang di-accept lewat newocs.
-        paper_status: conferenceStatus === 'Waiting' ? undefined : conferenceStatus,
+        paper_status: conferenceStatus === 'Waiting' ? 'Unassigned' : conferenceStatus,
       },
     });
-    await this.auditLog.log(actorUserId, `paper_${conferenceStatus.toLowerCase()}`, 'papers', paperId);
+    const action = conferenceStatus === 'Waiting' ? 'paper_cancel_decision' : `paper_${conferenceStatus.toLowerCase()}`;
+    await this.auditLog.log(actorUserId, action, 'papers', paperId);
     return updated;
   }
 }
