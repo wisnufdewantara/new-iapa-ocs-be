@@ -3,10 +3,11 @@ import { AuthModule } from '../auth/auth.module';
 import { EmailTemplateModule } from '../email-template/email-template.module';
 import { PaymentController, PaymentTypesController } from './payment.controller';
 import { PaymentService } from './payment.service';
+import { Ocs2SyncService } from './ocs2-sync.service';
 
 @Module({
   imports: [AuthModule, EmailTemplateModule],
   controllers: [PaymentController, PaymentTypesController],
-  providers: [PaymentService],
+  providers: [PaymentService, Ocs2SyncService],
 })
 export class PaymentModule {}

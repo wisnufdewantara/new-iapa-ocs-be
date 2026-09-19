@@ -6,6 +6,7 @@ import { EmailTemplateService } from '../email-template/email-template.service';
 import { presenterFee } from './pricing.constant';
 import { applyUniqueCode } from './unique-code.util';
 import { generateInvoicePdf } from './invoice-pdf.util';
+import { Ocs2SyncService } from './ocs2-sync.service';
 
 @Injectable()
 export class PaymentService {
@@ -14,21 +15,46 @@ export class PaymentService {
     private mailer: MailerService,
     private auditLog: AuditLogService,
     private emailTemplate: EmailTemplateService,
+    private ocs2Sync: Ocs2SyncService,
   ) {}
 
   // payments.total_amount NULL = trigger DB baru bikin baris placeholder
-  // (paper baru di-accept), belum dihitung. Niru resolveTotalAmount di
-  // legacy: hitung dari fee tiap presenter di paper ini, simpan sekali.
+  // (paper baru di-accept), belum dihitung.
+  //
+  // Ketentuan Biaya Presenter Berkelompok: HANYA submitter paper yang
+  // dikenakan biaya (member/non-member), penulis lain (co-author) tidak
+  // dikenakan biaya sama sekali. Ini beda dari perilaku lama yang sempat
+  // menjumlahkan fee semua presenter — itu bug sistemik yang ditemukan
+  // dan dikoreksi di data legacy (CMS-IAPA-BE), lihat SESSION_NOTES.md.
   private async ensureCalculated(payment: any) {
     if (payment.total_amount != null || !payment.paper_id) return payment;
+    const paper = await this.prisma.papers.findUnique({
+      where: { paper_id: payment.paper_id },
+      select: { submitter_id: true },
+    });
     const writers = await this.prisma.paper_writers.findMany({
       where: { paper_id: payment.paper_id, role: 'presenter' },
     });
-    const total = writers.reduce((sum, w) => sum + presenterFee(w.member_status), 0);
-    return this.prisma.payments.update({
+    let submitterWriter = writers.find((w) => w.user_id === paper?.submitter_id);
+    if (!submitterWriter && paper?.submitter_id) {
+      const submitter = await this.prisma.users.findUnique({ where: { user_id: paper.submitter_id } });
+      submitterWriter = writers.find((w) => w.email === submitter?.email);
+    }
+    // Submitter gak ketemu di daftar writer papernya sendiri (submission
+    // proxy/tim) — biarkan total_amount tetap NULL daripada nebak salah.
+    // sendInvoiceTeam sudah otomatis nolak dgn "Nominal belum bisa
+    // dihitung" kalau ini kejadian, jadi ketahuan perlu dicek manual.
+    if (!submitterWriter) return payment;
+    const total = presenterFee(submitterWriter.member_status);
+    const updated = await this.prisma.payments.update({
       where: { payment_id: payment.payment_id },
       data: { total_amount: total, payment_status: 'waiting for payment' },
     });
+    // Push balik ke ocs2 biar peserta yang masih cek status bayar di
+    // sistem lama juga langsung lihat nominal yang benar. Match pakai
+    // paper_id, BUKAN payment_id (lihat komentar di ocs2-sync.service.ts).
+    await this.ocs2Sync.pushPaymentTotalByPaperId(payment.paper_id, total, 'waiting for payment');
+    return updated;
   }
 
   private async bankInfo() {
