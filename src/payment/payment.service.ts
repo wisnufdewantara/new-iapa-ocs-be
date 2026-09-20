@@ -275,11 +275,18 @@ export class PaymentService {
 
   async verifyTeam(paymentId: string, action: 'accept' | 'reject', reason: string | undefined, actorUserId?: string) {
     if (action === 'reject' && !reason) throw new BadRequestException('Alasan reject wajib diisi');
+    const status = action === 'accept' ? 'verified' : 'rejected';
+    const description = action === 'accept' ? null : reason;
     const updated = await this.prisma.payments.update({
       where: { payment_id: paymentId },
-      data: { payment_status: action === 'accept' ? 'verified' : 'rejected', description: action === 'accept' ? null : reason },
+      data: { payment_status: status, description },
     });
     await this.auditLog.log(actorUserId, `payment_${action}`, 'payments', paymentId, reason);
+    // Peserta masih cek status bayar di ocs2.iapa.or.id — wajib ikut
+    // ke-sync biar gak keliatan "belum diverifikasi" padahal udah.
+    if (updated.paper_id) {
+      await this.ocs2Sync.pushPaymentStatusByPaperId(updated.paper_id, status, description);
+    }
     return updated;
   }
 
@@ -326,6 +333,9 @@ export class PaymentService {
       [{ filename: `Invoice-${paymentId}.pdf`, content: pdf }],
     );
     await this.prisma.payments.update({ where: { payment_id: paymentId }, data: { sent_invoice: true } });
+    if (payment.paper_id) {
+      await this.ocs2Sync.pushSentInvoiceByPaperId(payment.paper_id, true);
+    }
     return { sent: true };
   }
 

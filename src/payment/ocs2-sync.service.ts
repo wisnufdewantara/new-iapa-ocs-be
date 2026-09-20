@@ -30,14 +30,32 @@ export class Ocs2SyncService {
   private warnedMissingInternalEnv = false;
 
   async pushPaymentTotalByPaperId(paperId: string, totalAmount: number, paymentStatus: string) {
-    const viaSupabase = await this.pushViaSupabaseRest(paperId, totalAmount, paymentStatus);
+    const viaSupabase = await this.pushViaSupabaseRest(paperId, { total_amount: totalAmount, payment_status: paymentStatus });
     if (viaSupabase) return;
     await this.pushViaOcs2InternalApi(paperId, totalAmount, paymentStatus);
   }
 
+  // Dipakai buat aksi yang cuma ngubah status (Accept/Reject/Kirim Invoice),
+  // BUKAN nominal — jadi total_amount di ocs2 nggak ikut disentuh/ditimpa.
+  // Ini penting karena peserta masih ngecek status bayar di ocs2.iapa.or.id
+  // (belum semua pindah ke newocs), jadi status verify/reject Apan di sini
+  // WAJIB kelihatan di sana juga.
+  async pushPaymentStatusByPaperId(paperId: string, paymentStatus: string, description?: string | null) {
+    const fields: Record<string, unknown> = { payment_status: paymentStatus };
+    if (description !== undefined) fields.description = description;
+    await this.pushViaSupabaseRest(paperId, fields);
+    // Fallback internal API belum support partial-field update (cuma
+    // totalAmount+paymentStatus) — kalau REST API Supabase lagi bermasalah,
+    // status-only push ini bakal skip dulu sampai itu diperluas juga.
+  }
+
+  async pushSentInvoiceByPaperId(paperId: string, sentInvoice: boolean) {
+    await this.pushViaSupabaseRest(paperId, { sent_invoice: sentInvoice });
+  }
+
   // Jalur 1: Supabase PostgREST langsung. Return true kalau berhasil
   // update minimal 1 baris (biar caller tau nggak perlu fallback lagi).
-  private async pushViaSupabaseRest(paperId: string, totalAmount: number, paymentStatus: string): Promise<boolean> {
+  private async pushViaSupabaseRest(paperId: string, fields: Record<string, unknown>): Promise<boolean> {
     const url = process.env.SUPABASE_URL;
     const secretKey = process.env.SUPABASE_SECRET_KEY;
     if (!url || !secretKey) {
@@ -57,7 +75,7 @@ export class Ocs2SyncService {
           'Content-Type': 'application/json',
           Prefer: 'return=representation',
         },
-        body: JSON.stringify({ total_amount: totalAmount, payment_status: paymentStatus }),
+        body: JSON.stringify(fields),
       });
       if (!res.ok) {
         this.logger.warn(`Push via Supabase REST gagal untuk paper ${paperId}: HTTP ${res.status} ${await res.text()}`);
