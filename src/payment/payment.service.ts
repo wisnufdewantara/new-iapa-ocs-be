@@ -18,34 +18,45 @@ export class PaymentService {
     private ocs2Sync: Ocs2SyncService,
   ) {}
 
-  // payments.total_amount NULL = trigger DB baru bikin baris placeholder
-  // (paper baru di-accept), belum dihitung.
-  //
   // Ketentuan Biaya Presenter Berkelompok: HANYA submitter paper yang
   // dikenakan biaya (member/non-member), penulis lain (co-author) tidak
-  // dikenakan biaya sama sekali. Ini beda dari perilaku lama yang sempat
-  // menjumlahkan fee semua presenter — itu bug sistemik yang ditemukan
-  // dan dikoreksi di data legacy (CMS-IAPA-BE), lihat SESSION_NOTES.md.
-  private async ensureCalculated(payment: any) {
-    if (payment.total_amount != null || !payment.paper_id) return payment;
+  // dikenakan biaya sama sekali — KECUALI admin sengaja override
+  // (payment_override di baris submitter: "non_payment"/"writer" = waive,
+  // total 0). Cari writer yang match submitter (by user_id, fallback
+  // email). Return null kalau submitter nggak ketemu di daftar writer
+  // papernya sendiri (submission proxy/tim) — biar dicek manual, bukan
+  // ditebak.
+  private async findSubmitterWriter(paperId: string) {
     const paper = await this.prisma.papers.findUnique({
-      where: { paper_id: payment.paper_id },
+      where: { paper_id: paperId },
       select: { submitter_id: true },
     });
     const writers = await this.prisma.paper_writers.findMany({
-      where: { paper_id: payment.paper_id, role: 'presenter' },
+      where: { paper_id: paperId, role: 'presenter' },
     });
     let submitterWriter = writers.find((w) => w.user_id === paper?.submitter_id);
     if (!submitterWriter && paper?.submitter_id) {
       const submitter = await this.prisma.users.findUnique({ where: { user_id: paper.submitter_id } });
       submitterWriter = writers.find((w) => w.email === submitter?.email);
     }
-    // Submitter gak ketemu di daftar writer papernya sendiri (submission
-    // proxy/tim) — biarkan total_amount tetap NULL daripada nebak salah.
+    return submitterWriter ?? null;
+  }
+
+  private computeTotal(submitterWriter: { member_status: boolean | null; payment_override: string | null } | null) {
+    if (!submitterWriter) return null;
+    if (submitterWriter.payment_override) return 0;
+    return presenterFee(submitterWriter.member_status);
+  }
+
+  // payments.total_amount NULL = trigger DB baru bikin baris placeholder
+  // (paper baru di-accept), belum dihitung.
+  private async ensureCalculated(payment: any) {
+    if (payment.total_amount != null || !payment.paper_id) return payment;
+    const submitterWriter = await this.findSubmitterWriter(payment.paper_id);
     // sendInvoiceTeam sudah otomatis nolak dgn "Nominal belum bisa
-    // dihitung" kalau ini kejadian, jadi ketahuan perlu dicek manual.
+    // dihitung" kalau submitterWriter null, jadi ketahuan perlu dicek manual.
     if (!submitterWriter) return payment;
-    const total = presenterFee(submitterWriter.member_status);
+    const total = this.computeTotal(submitterWriter)!;
     const updated = await this.prisma.payments.update({
       where: { payment_id: payment.payment_id },
       data: { total_amount: total, payment_status: 'waiting for payment' },
@@ -55,6 +66,75 @@ export class PaymentService {
     // paper_id, BUKAN payment_id (lihat komentar di ocs2-sync.service.ts).
     await this.ocs2Sync.pushPaymentTotalByPaperId(payment.paper_id, total, 'waiting for payment');
     return updated;
+  }
+
+  // Detail per-paper: breakdown tiap writer + fee masing-masing, buat
+  // halaman edit admin (mirip PaymentDetails.vue di ocs2).
+  async paperDetail(paymentId: string) {
+    const payment = await this.prisma.payments.findUnique({
+      where: { payment_id: paymentId },
+      include: { papers: { include: { paper_writers: { orderBy: { writer_order: 'asc' } } } }, users: true },
+    });
+    if (!payment) throw new NotFoundException('Payment tidak ditemukan');
+    const calculated = await this.ensureCalculated(payment);
+    const paper = payment.papers;
+    const submitterEmail = payment.users.email;
+
+    const writers = (paper?.paper_writers ?? []).map((w) => {
+      const isSubmitter = w.user_id === payment.submitter_id || w.email === submitterEmail;
+      const waived = !!w.payment_override;
+      const fee = isSubmitter && !waived ? presenterFee(w.member_status) : 0;
+      return {
+        writerId: w.writer_id,
+        name: `${w.first_name} ${w.last_name}`,
+        role: w.role,
+        isMember: w.member_status,
+        paymentOverride: w.payment_override,
+        fee,
+      };
+    });
+
+    return {
+      paymentId: calculated.payment_id,
+      paperId: payment.paper_id,
+      paperTitle: paper?.paper_title ?? '',
+      submitterName: `${payment.users.first_name} ${payment.users.last_name}`,
+      totalFee: calculated.total_amount != null ? Number(calculated.total_amount) : null,
+      writers,
+      paymentStatus: calculated.payment_status,
+      sentInvoice: calculated.sent_invoice,
+    };
+  }
+
+  // Update role/member_status/payment_override tiap writer, lalu hitung
+  // ulang total SELALU server-side dari submitter aja (JANGAN percaya
+  // total dari client) — sama seperti updatePaymentAndWriters di ocs2.
+  async updateWriters(
+    paymentId: string,
+    writers: { writerId: string; role: string; isMember: boolean; paymentOverride: string | null }[],
+    actorUserId?: string,
+  ) {
+    const payment = await this.prisma.payments.findUnique({ where: { payment_id: paymentId } });
+    if (!payment || !payment.paper_id) throw new NotFoundException('Payment tidak ditemukan');
+
+    for (const w of writers) {
+      await this.prisma.paper_writers.update({
+        where: { writer_id: w.writerId },
+        data: { role: w.role, member_status: w.isMember, payment_override: w.paymentOverride },
+      });
+    }
+
+    const submitterWriter = await this.findSubmitterWriter(payment.paper_id);
+    const total = this.computeTotal(submitterWriter);
+    const updated = await this.prisma.payments.update({
+      where: { payment_id: paymentId },
+      data: { total_amount: total, payment_status: 'waiting for payment' },
+    });
+    await this.auditLog.log(actorUserId, 'payment_update_writers', 'payments', paymentId, JSON.stringify(writers));
+    if (total != null) {
+      await this.ocs2Sync.pushPaymentTotalByPaperId(payment.paper_id, total, 'waiting for payment');
+    }
+    return this.paperDetail(updated.payment_id);
   }
 
   private async bankInfo() {
@@ -153,7 +233,7 @@ export class PaymentService {
   async listByConference(conferenceId: string) {
     const papers = await this.prisma.papers.findMany({
       where: { conference_id: conferenceId },
-      include: { payments: true, paper_writers: true },
+      include: { payments: { include: { payment_proofs: true } }, paper_writers: true },
     });
     const team: Record<string, any>[] = [];
     for (const paper of papers) {
@@ -169,6 +249,11 @@ export class PaymentService {
           amount: calculated.total_amount != null ? Number(calculated.total_amount) : null,
           status: calculated.payment_status,
           sentInvoice: calculated.sent_invoice,
+          // Accept/Reject cuma masuk akal kalau peserta udah upload bukti
+          // transfer — sebelumnya tombol ini selalu muncul walau belum
+          // ada bukti sama sekali, resiko kepencet verify pembayaran yang
+          // belum beneran masuk.
+          hasProof: payment.payment_proofs.length > 0,
         });
       }
     }

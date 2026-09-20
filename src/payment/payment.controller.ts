@@ -18,6 +18,7 @@ import { PermissionsGuard } from '../common/permissions.guard';
 import { RequirePermission } from '../common/permissions.decorator';
 import { PaymentService } from './payment.service';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
+import { UpdateWritersDto } from './dto/update-writers.dto';
 import { UpdatePaymentTypeDto } from './dto/update-payment-type.dto';
 import { paymentProofUploadOptions } from './payment-upload.config';
 
@@ -56,6 +57,22 @@ export class PaymentController {
   @RequirePermission('payment', 'verify')
   listByConference(@Query('conferenceId', ParseUUIDPipe) conferenceId: string) {
     return this.paymentService.listByConference(conferenceId);
+  }
+
+  @Get(':paymentId/detail')
+  @RequirePermission('payment', 'verify')
+  paperDetail(@Param('paymentId', ParseUUIDPipe) paymentId: string) {
+    return this.paymentService.paperDetail(paymentId);
+  }
+
+  @Put(':paymentId/writers')
+  @RequirePermission('payment', 'verify')
+  updateWriters(
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @Body() dto: UpdateWritersDto,
+    @Req() req: any,
+  ) {
+    return this.paymentService.updateWriters(paymentId, dto.writers, (req.user as { userId: string }).userId);
   }
 
   @Post(':paymentId/verify')

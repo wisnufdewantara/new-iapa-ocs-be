@@ -197,6 +197,10 @@ model paper_writers {
   phone_number    String?          @db.VarChar(20)
   member_status   Boolean?         @default(false)
   certificate_url String?          @db.VarChar(255)
+  // null = normal (ikut aturan member/non-member biasa). "non_payment"/"writer"
+  // = admin sengaja tandain baris ini gak bayar sama sekali (fee dipaksa 0).
+  // Kolom BARU (2026-09-20), mirror dari CMS-IAPA-BE paper_writers.payment_override.
+  payment_override String?         @db.VarChar(20)
   user_id         String?          @db.Uuid
   attendance      attendance[]
   conference      conference[]
