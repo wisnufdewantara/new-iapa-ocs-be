@@ -201,6 +201,13 @@ model paper_writers {
   // = admin sengaja tandain baris ini gak bayar sama sekali (fee dipaksa 0).
   // Kolom BARU (2026-09-20), mirror dari CMS-IAPA-BE paper_writers.payment_override.
   payment_override String?         @db.VarChar(20)
+  // Fee custom yang di-set ADMIN MANUAL buat writer ini (biasanya
+  // non-submitter yang sengaja minta ikut bayar sendiri demi dapat
+  // sertifikat sendiri — kasus "presenter kelompok" di luar aturan
+  // submitter-only biasa). SEKALI diisi (non-null), backend nolak
+  // perubahan lagi — sengaja gak bisa direvisi, biar gak disalahgunakan
+  // bolak-balik. Kolom BARU (2026-09-21).
+  manual_fee      Decimal?         @db.Decimal(10, 2)
   user_id         String?          @db.Uuid
   attendance      attendance[]
   conference      conference[]

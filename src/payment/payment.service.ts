@@ -20,12 +20,16 @@ export class PaymentService {
 
   // Ketentuan Biaya Presenter Berkelompok: HANYA submitter paper yang
   // dikenakan biaya (member/non-member), penulis lain (co-author) tidak
-  // dikenakan biaya sama sekali — KECUALI admin sengaja override
-  // (payment_override di baris submitter: "non_payment"/"writer" = waive,
-  // total 0). Cari writer yang match submitter (by user_id, fallback
-  // email). Return null kalau submitter nggak ketemu di daftar writer
-  // papernya sendiri (submission proxy/tim) — biar dicek manual, bukan
-  // ditebak.
+  // dikenakan biaya sama sekali — KECUALI:
+  //   (a) payment_override di baris submitter ("non_payment"/"writer")
+  //       = submitter di-waive, fee-nya 0.
+  //   (b) manual_fee di baris writer MANAPUN (submitter atau bukan) =
+  //       admin sengaja set nominal spesifik buat orang itu — dipakai
+  //       kasus "anggota presenter yang MINTA SENDIRI ikut bayar biar
+  //       dapat sertifikat sendiri" (bukan aturan umum, permintaan
+  //       per-paper). manual_fee SEKALI diisi, backend nolak diubah lagi
+  //       (lihat updateWriters) — sengaja gak ada revisi.
+  // Cari writer yang match submitter (by user_id, fallback email).
   private async findSubmitterWriter(paperId: string) {
     const paper = await this.prisma.papers.findUnique({
       where: { paper_id: paperId },
@@ -39,24 +43,40 @@ export class PaymentService {
       const submitter = await this.prisma.users.findUnique({ where: { user_id: paper.submitter_id } });
       submitterWriter = writers.find((w) => w.email === submitter?.email);
     }
-    return submitterWriter ?? null;
+    return { writers, submitterWriter: submitterWriter ?? null };
   }
 
-  private computeTotal(submitterWriter: { member_status: boolean | null; payment_override: string | null } | null) {
-    if (!submitterWriter) return null;
-    if (submitterWriter.payment_override) return 0;
-    return presenterFee(submitterWriter.member_status);
+  private effectiveFee(
+    writer: { member_status: boolean | null; payment_override: string | null; manual_fee: unknown },
+    isSubmitter: boolean,
+  ): number {
+    if (writer.manual_fee != null) return Number(writer.manual_fee);
+    if (isSubmitter && !writer.payment_override) return presenterFee(writer.member_status);
+    return 0;
+  }
+
+  // Total = jumlah effectiveFee semua writer (biasanya cuma submitter yang
+  // nonzero, tapi manual_fee bisa bikin writer lain ikut nonzero juga).
+  // Return null kalau submitter nggak ketemu DAN nggak ada satupun
+  // manual_fee yang di-set — biar dicek manual, bukan ditebak (submission
+  // proxy/tim). Kalau ada manual_fee walau submitter nggak ketemu, tetap
+  // dihitung dari situ — orang yang manual_fee-nya di-set emang beneran
+  // mau bayar segitu, lepas dari status submitter papernya.
+  private computeTotal(writers: { member_status: boolean | null; payment_override: string | null; manual_fee: unknown; writer_id: string }[], submitterWriter: { writer_id: string } | null) {
+    const hasManualFee = writers.some((w) => w.manual_fee != null);
+    if (!submitterWriter && !hasManualFee) return null;
+    return writers.reduce((sum, w) => sum + this.effectiveFee(w, w.writer_id === submitterWriter?.writer_id), 0);
   }
 
   // payments.total_amount NULL = trigger DB baru bikin baris placeholder
   // (paper baru di-accept), belum dihitung.
   private async ensureCalculated(payment: any) {
     if (payment.total_amount != null || !payment.paper_id) return payment;
-    const submitterWriter = await this.findSubmitterWriter(payment.paper_id);
+    const { writers, submitterWriter } = await this.findSubmitterWriter(payment.paper_id);
+    const total = this.computeTotal(writers, submitterWriter);
     // sendInvoiceTeam sudah otomatis nolak dgn "Nominal belum bisa
-    // dihitung" kalau submitterWriter null, jadi ketahuan perlu dicek manual.
-    if (!submitterWriter) return payment;
-    const total = this.computeTotal(submitterWriter)!;
+    // dihitung" kalau total null, jadi ketahuan perlu dicek manual.
+    if (total == null) return payment;
     const updated = await this.prisma.payments.update({
       where: { payment_id: payment.payment_id },
       data: { total_amount: total, payment_status: 'waiting for payment' },
@@ -82,15 +102,14 @@ export class PaymentService {
 
     const writers = (paper?.paper_writers ?? []).map((w) => {
       const isSubmitter = w.user_id === payment.submitter_id || w.email === submitterEmail;
-      const waived = !!w.payment_override;
-      const fee = isSubmitter && !waived ? presenterFee(w.member_status) : 0;
       return {
         writerId: w.writer_id,
         name: `${w.first_name} ${w.last_name}`,
         role: w.role,
         isMember: w.member_status,
         paymentOverride: w.payment_override,
-        fee,
+        manualFee: w.manual_fee != null ? Number(w.manual_fee) : null,
+        fee: this.effectiveFee(w, isSubmitter),
       };
     });
 
@@ -106,26 +125,42 @@ export class PaymentService {
     };
   }
 
-  // Update role/member_status/payment_override tiap writer, lalu hitung
-  // ulang total SELALU server-side dari submitter aja (JANGAN percaya
-  // total dari client) — sama seperti updatePaymentAndWriters di ocs2.
+  // Update role/member_status/payment_override/manual_fee tiap writer,
+  // lalu hitung ulang total SELALU server-side (JANGAN percaya total dari
+  // client) — sama seperti updatePaymentAndWriters di ocs2. manual_fee
+  // SEKALI diisi doang: kalau writer itu di DB udah punya manual_fee
+  // non-null, request buat ngubahnya lagi DIABAIKAN (bukan error, biar FE
+  // simpel — nilai lama tetap dipertahankan).
   async updateWriters(
     paymentId: string,
-    writers: { writerId: string; role: string; isMember: boolean; paymentOverride: string | null }[],
+    writers: { writerId: string; role: string; isMember: boolean; paymentOverride: string | null; manualFee?: number | null }[],
     actorUserId?: string,
   ) {
     const payment = await this.prisma.payments.findUnique({ where: { payment_id: paymentId } });
     if (!payment || !payment.paper_id) throw new NotFoundException('Payment tidak ditemukan');
 
+    const existing = await this.prisma.paper_writers.findMany({
+      where: { writer_id: { in: writers.map((w) => w.writerId) } },
+      select: { writer_id: true, manual_fee: true },
+    });
+    const alreadyLocked = new Set(existing.filter((e) => e.manual_fee != null).map((e) => e.writer_id));
+
     for (const w of writers) {
-      await this.prisma.paper_writers.update({
-        where: { writer_id: w.writerId },
-        data: { role: w.role, member_status: w.isMember, payment_override: w.paymentOverride },
-      });
+      const data: { role: string; member_status: boolean; payment_override: string | null; manual_fee?: number } = {
+        role: w.role,
+        member_status: w.isMember,
+        payment_override: w.paymentOverride,
+      };
+      // Cuma tulis manual_fee kalau BELUM pernah di-set sebelumnya —
+      // sekali terkunci, permintaan ubah lagi diabaikan diam-diam.
+      if (w.manualFee != null && !alreadyLocked.has(w.writerId)) {
+        data.manual_fee = w.manualFee;
+      }
+      await this.prisma.paper_writers.update({ where: { writer_id: w.writerId }, data });
     }
 
-    const submitterWriter = await this.findSubmitterWriter(payment.paper_id);
-    const total = this.computeTotal(submitterWriter);
+    const { writers: allWriters, submitterWriter } = await this.findSubmitterWriter(payment.paper_id);
+    const total = this.computeTotal(allWriters, submitterWriter);
     const updated = await this.prisma.payments.update({
       where: { payment_id: paymentId },
       data: { total_amount: total, payment_status: 'waiting for payment' },

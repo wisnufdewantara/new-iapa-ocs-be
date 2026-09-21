@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 
 class WriterUpdateDto {
   @IsString()
@@ -15,6 +15,13 @@ class WriterUpdateDto {
   @IsOptional()
   @IsIn(['non_payment', 'writer', null])
   paymentOverride: string | null;
+
+  // Nominal custom yang di-set admin manual — SEKALI aja, service-nya
+  // nolak diam-diam kalau writer ini udah punya manual_fee sebelumnya.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  manualFee?: number | null;
 }
 
 export class UpdateWritersDto {
