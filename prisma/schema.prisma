@@ -229,6 +229,7 @@ model papers {
   conference_id                               String?          @db.Uuid
   sent_confirmation                           Boolean?         @default(false)
   feedback_url                                String?
+  review_feedback                             String?
   type                                        String?          @db.VarChar(255)
   keywords                                    String?
   sub_theme                                   String?          @db.VarChar(255)

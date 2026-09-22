@@ -9,5 +9,6 @@ import { Ocs2SyncService } from './ocs2-sync.service';
   imports: [AuthModule, EmailTemplateModule],
   controllers: [PaymentController, PaymentTypesController],
   providers: [PaymentService, Ocs2SyncService],
+  exports: [Ocs2SyncService],
 })
 export class PaymentModule {}

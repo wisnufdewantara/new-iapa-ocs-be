@@ -5,6 +5,7 @@ import { AuthorInput } from './dto/author-input.dto';
 import { SubmitPaperDto } from './dto/submit-paper.dto';
 import { AuditLogService } from '../common/audit-log.service';
 import { ConferenceService } from '../conference/conference.service';
+import { Ocs2SyncService } from '../payment/ocs2-sync.service';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^\+?\d+$/;
@@ -15,13 +16,21 @@ export class PapersService {
     private prisma: PrismaService,
     private auditLog: AuditLogService,
     private conferenceService: ConferenceService,
+    private ocs2Sync: Ocs2SyncService,
   ) {}
 
   async findMine(userId: string) {
     const paper = await this.prisma.papers.findFirst({
       where: { submitter_id: userId },
       orderBy: { upload_date: 'desc' },
-      select: { paper_id: true, paper_title: true, conference_status: true, paper_status: true, document_url: true },
+      select: {
+        paper_id: true,
+        paper_title: true,
+        conference_status: true,
+        paper_status: true,
+        document_url: true,
+        review_feedback: true,
+      },
     });
     return paper
       ? {
@@ -30,6 +39,7 @@ export class PapersService {
           conferenceStatus: paper.conference_status,
           paperStatus: paper.paper_status,
           documentUrl: paper.document_url,
+          reviewFeedback: paper.review_feedback,
         }
       : null;
   }
@@ -166,7 +176,12 @@ export class PapersService {
     }));
   }
 
-  async updateStatus(paperId: string, conferenceStatus: 'Waiting' | 'Accepted' | 'Rejected', actorUserId?: string) {
+  async updateStatus(
+    paperId: string,
+    conferenceStatus: 'Waiting' | 'Accepted' | 'Rejected',
+    actorUserId?: string,
+    reviewFeedback?: string,
+  ) {
     // 'Waiting' dipakai juga buat "Batalkan Keputusan" (cancel decision) —
     // balikin paper_status ke Unassigned secara eksplisit, BUKAN `undefined`
     // (yang di Prisma artinya "jangan sentuh field ini"). Sebelumnya bug
@@ -184,10 +199,44 @@ export class PapersService {
         // tanpa ini baris payments nggak pernah otomatis kebuat buat
         // paper baru yang di-accept lewat newocs.
         paper_status: conferenceStatus === 'Waiting' ? 'Unassigned' : conferenceStatus,
+        // Cuma disentuh kalau reviewer ngisi sesuatu — biar reject/accept
+        // tanpa catatan (misal lewat bulk) nggak nimpa feedback lama jadi
+        // undefined/hilang.
+        ...(reviewFeedback !== undefined ? { review_feedback: reviewFeedback } : {}),
       },
     });
     const action = conferenceStatus === 'Waiting' ? 'paper_cancel_decision' : `paper_${conferenceStatus.toLowerCase()}`;
     await this.auditLog.log(actorUserId, action, 'papers', paperId);
+
+    // newocs sekarang sumber utama buat keputusan Accept/Reject — push
+    // balik ke ocs2/Supabase biar peserta yang masih cek status di
+    // ocs2.iapa.or.id tetap lihat data yang sama. Ocs2SyncService nangkep
+    // error-nya sendiri (nggak throw), jadi await di sini nggak bikin
+    // response ke admin gagal cuma gara-gara sync-nya bermasalah.
+    await this.ocs2Sync.pushPaperStatusByPaperId(paperId, updated.paper_status, conferenceStatus, reviewFeedback);
+
     return updated;
+  }
+
+  // Nggak ada pengiriman email di updateStatus() sama sekali, jadi beda
+  // dari bug lama di ocs2 (bulk accept/reject di sana sempat kirim email
+  // duluan sebelum status kesimpen — kalau emailnya gagal, keputusannya
+  // ikut nggak pernah tersimpan). Di sini per-paper try/catch murni buat
+  // isolasi 1 paper gagal (misal paperId salah) dari paper lain di batch.
+  async updateStatusBulk(
+    paperIds: string[],
+    conferenceStatus: 'Accepted' | 'Rejected',
+    actorUserId?: string,
+  ) {
+    const results: { paperId: string; success: boolean; error?: string }[] = [];
+    for (const paperId of paperIds) {
+      try {
+        await this.updateStatus(paperId, conferenceStatus, actorUserId);
+        results.push({ paperId, success: true });
+      } catch (e: any) {
+        results.push({ paperId, success: false, error: e.message });
+      }
+    }
+    return results;
   }
 }

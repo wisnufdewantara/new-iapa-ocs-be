@@ -30,7 +30,10 @@ export class Ocs2SyncService {
   private warnedMissingInternalEnv = false;
 
   async pushPaymentTotalByPaperId(paperId: string, totalAmount: number, paymentStatus: string) {
-    const viaSupabase = await this.pushViaSupabaseRest(paperId, { total_amount: totalAmount, payment_status: paymentStatus });
+    const viaSupabase = await this.pushViaSupabaseRest('payments', paperId, {
+      total_amount: totalAmount,
+      payment_status: paymentStatus,
+    });
     if (viaSupabase) return;
     await this.pushViaOcs2InternalApi(paperId, totalAmount, paymentStatus);
   }
@@ -43,19 +46,60 @@ export class Ocs2SyncService {
   async pushPaymentStatusByPaperId(paperId: string, paymentStatus: string, description?: string | null) {
     const fields: Record<string, unknown> = { payment_status: paymentStatus };
     if (description !== undefined) fields.description = description;
-    await this.pushViaSupabaseRest(paperId, fields);
+    await this.pushViaSupabaseRest('payments', paperId, fields);
     // Fallback internal API belum support partial-field update (cuma
     // totalAmount+paymentStatus) — kalau REST API Supabase lagi bermasalah,
     // status-only push ini bakal skip dulu sampai itu diperluas juga.
   }
 
   async pushSentInvoiceByPaperId(paperId: string, sentInvoice: boolean) {
-    await this.pushViaSupabaseRest(paperId, { sent_invoice: sentInvoice });
+    await this.pushViaSupabaseRest('payments', paperId, { sent_invoice: sentInvoice });
+  }
+
+  // Gap yang ketemu 2026-09-23: pushPaymentTotalByPaperId di atas cuma
+  // nyentuh sisko.payments.total_amount — status keanggotaan
+  // (member_status) PER WRITER di sisko.paper_writers nggak pernah ikut
+  // disync. Akibatnya angka total di ocs2 bisa aja kebetulan match, tapi
+  // rincian per-penulis (Member/Non-Member) di ocs2 tetap nunjukkin data
+  // lama. Match pakai writer_id (SAMA persis di newocs & ocs2 buat data
+  // yang berasal dari sync-from-supabase.mjs — beda dari payment_id yang
+  // independen per sistem). Kalau writer_id ini belum ada di ocs2 (baru
+  // dibuat di newocs doang), push-nya diam-diam nggak update apa-apa
+  // (0 rows) — bukan error, cuma nggak ada yang perlu disamain.
+  async pushWriterMemberStatus(writerId: string, isMember: boolean) {
+    await this.pushViaSupabaseRest('paper_writers', writerId, { member_status: isMember }, 'writer_id');
+  }
+
+  // newocs sekarang jadi sumber utama buat keputusan Accept/Reject +
+  // catatan reviewer (lihat PapersService.updateStatus) — push ke
+  // sisko.papers di Supabase (bukan sisko.payments kayak method di atas),
+  // biar peserta yang masih cek status di ocs2.iapa.or.id tetap lihat
+  // data yang benar. paper_status ikut dikirim (bukan cuma
+  // conference_status) karena keduanya kolom terpisah di ocs2 juga.
+  async pushPaperStatusByPaperId(
+    paperId: string,
+    paperStatus: string,
+    conferenceStatus: string,
+    reviewFeedback?: string,
+  ) {
+    const fields: Record<string, unknown> = { paper_status: paperStatus, conference_status: conferenceStatus };
+    if (reviewFeedback !== undefined) fields.review_feedback = reviewFeedback;
+    const viaSupabase = await this.pushViaSupabaseRest('papers', paperId, fields, 'paper_id');
+    if (viaSupabase) return;
+    await this.pushPaperViaOcs2InternalApi(paperId, paperStatus, conferenceStatus, reviewFeedback);
   }
 
   // Jalur 1: Supabase PostgREST langsung. Return true kalau berhasil
   // update minimal 1 baris (biar caller tau nggak perlu fallback lagi).
-  private async pushViaSupabaseRest(paperId: string, fields: Record<string, unknown>): Promise<boolean> {
+  // `idColumn` defaultnya 'paper_id' karena tabel payments filter-nya
+  // juga pakai kolom itu (payments.paper_id), bukan payments.payment_id
+  // (lihat komentar di atas file).
+  private async pushViaSupabaseRest(
+    table: string,
+    paperId: string,
+    fields: Record<string, unknown>,
+    idColumn = 'paper_id',
+  ): Promise<boolean> {
     const url = process.env.SUPABASE_URL;
     const secretKey = process.env.SUPABASE_SECRET_KEY;
     if (!url || !secretKey) {
@@ -66,7 +110,8 @@ export class Ocs2SyncService {
       return false;
     }
     try {
-      const res = await fetch(`${url}/rest/v1/payments?paper_id=eq.${paperId}`, {
+      const idFilterColumn = table === 'papers' ? 'paper_id' : idColumn;
+      const res = await fetch(`${url}/rest/v1/${table}?${idFilterColumn}=eq.${paperId}`, {
         method: 'PATCH',
         headers: {
           apikey: secretKey,
@@ -78,17 +123,19 @@ export class Ocs2SyncService {
         body: JSON.stringify(fields),
       });
       if (!res.ok) {
-        this.logger.warn(`Push via Supabase REST gagal untuk paper ${paperId}: HTTP ${res.status} ${await res.text()}`);
+        this.logger.warn(
+          `Push via Supabase REST gagal untuk ${table} paper ${paperId}: HTTP ${res.status} ${await res.text()}`,
+        );
         return false;
       }
       const rows = (await res.json()) as unknown[];
       if (rows.length === 0) {
-        this.logger.warn(`Push via Supabase REST: paper ${paperId} belum ada baris payments di ocs2.`);
+        this.logger.warn(`Push via Supabase REST: paper ${paperId} belum ada baris ${table} di ocs2.`);
         return false;
       }
       return true;
     } catch (err: any) {
-      this.logger.error(`Gagal push via Supabase REST untuk paper ${paperId}: ${err.message}`);
+      this.logger.error(`Gagal push via Supabase REST (${table}) untuk paper ${paperId}: ${err.message}`);
       return false;
     }
   }
@@ -115,6 +162,37 @@ export class Ocs2SyncService {
       }
     } catch (err: any) {
       this.logger.error(`Gagal push payment (fallback) untuk paper ${paperId} ke ocs2: ${err.message}`);
+    }
+  }
+
+  // Fallback endpoint internal khusus paper status+feedback, pasangan
+  // POST /api/internal/paper-sync/{paperId} di CMS-IAPA-BE.
+  private async pushPaperViaOcs2InternalApi(
+    paperId: string,
+    paperStatus: string,
+    conferenceStatus: string,
+    reviewFeedback?: string,
+  ) {
+    const baseUrl = process.env.OCS2_API_URL || 'https://cms-iapa-be.up.railway.app/api';
+    const secret = process.env.INTERNAL_SYNC_SECRET;
+    if (!secret) {
+      if (!this.warnedMissingInternalEnv) {
+        this.logger.warn('INTERNAL_SYNC_SECRET belum diisi di .env — fallback ke ocs2 di-skip.');
+        this.warnedMissingInternalEnv = true;
+      }
+      return;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/internal/paper-sync/${paperId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': secret },
+        body: JSON.stringify({ paperStatus, conferenceStatus, reviewFeedback }),
+      });
+      if (!res.ok) {
+        this.logger.warn(`Push paper ke ocs2 (fallback) gagal untuk paper ${paperId}: HTTP ${res.status} ${await res.text()}`);
+      }
+    } catch (err: any) {
+      this.logger.error(`Gagal push paper (fallback) untuk paper ${paperId} ke ocs2: ${err.message}`);
     }
   }
 }

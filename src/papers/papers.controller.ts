@@ -19,6 +19,7 @@ import { PermissionsGuard } from '../common/permissions.guard';
 import { RequirePermission } from '../common/permissions.decorator';
 import { PapersService } from './papers.service';
 import { UpdatePaperStatusDto } from './dto/update-paper-status.dto';
+import { UpdatePaperStatusBulkDto } from './dto/update-paper-status-bulk.dto';
 import { SubmitPaperDto } from './dto/submit-paper.dto';
 import { papersUploadOptions } from './papers-upload.config';
 
@@ -52,6 +53,20 @@ export class PapersController {
 
   @Patch(':id/status')
   updateStatus(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdatePaperStatusDto, @Req() req: any) {
-    return this.papersService.updateStatus(id, dto.conferenceStatus, (req.user as { userId: string }).userId);
+    return this.papersService.updateStatus(
+      id,
+      dto.conferenceStatus,
+      (req.user as { userId: string }).userId,
+      dto.reviewFeedback,
+    );
+  }
+
+  @Post('status-bulk')
+  updateStatusBulk(@Body() dto: UpdatePaperStatusBulkDto, @Req() req: any) {
+    return this.papersService.updateStatusBulk(
+      dto.paperIds,
+      dto.conferenceStatus,
+      (req.user as { userId: string }).userId,
+    );
   }
 }

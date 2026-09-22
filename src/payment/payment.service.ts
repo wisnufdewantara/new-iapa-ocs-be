@@ -93,7 +93,11 @@ export class PaymentService {
   async paperDetail(paymentId: string) {
     const payment = await this.prisma.payments.findUnique({
       where: { payment_id: paymentId },
-      include: { papers: { include: { paper_writers: { orderBy: { writer_order: 'asc' } } } }, users: true },
+      include: {
+        papers: { include: { paper_writers: { orderBy: { writer_order: 'asc' } } } },
+        users: true,
+        payment_proofs: { orderBy: { upload_date: 'desc' } },
+      },
     });
     if (!payment) throw new NotFoundException('Payment tidak ditemukan');
     const calculated = await this.ensureCalculated(payment);
@@ -122,6 +126,16 @@ export class PaymentService {
       writers,
       paymentStatus: calculated.payment_status,
       sentInvoice: calculated.sent_invoice,
+      // Bukti transfer yang di-upload peserta — sebelumnya kesimpen tapi
+      // nggak pernah ke-return ke FE sama sekali, jadi admin nggak punya
+      // cara liat filenya walau tombol Accept/Reject udah nge-cek hasProof.
+      proofs: payment.payment_proofs.map((p) => ({
+        proofId: p.proof_id,
+        proofUrl: p.proof_url,
+        senderName: p.sender_name,
+        transferDate: p.transfer_date,
+        uploadDate: p.upload_date,
+      })),
     };
   }
 
@@ -168,6 +182,12 @@ export class PaymentService {
     await this.auditLog.log(actorUserId, 'payment_update_writers', 'payments', paymentId, JSON.stringify(writers));
     if (total != null) {
       await this.ocs2Sync.pushPaymentTotalByPaperId(payment.paper_id, total, 'waiting for payment');
+    }
+    // Push member_status per writer juga — bukan cuma total-nya. Gap ini
+    // yang bikin ocs2 kadang nunjukkin Member/Non-Member basi meski
+    // total-nya udah match (lihat komentar di Ocs2SyncService).
+    for (const w of writers) {
+      await this.ocs2Sync.pushWriterMemberStatus(w.writerId, w.isMember);
     }
     return this.paperDetail(updated.payment_id);
   }
