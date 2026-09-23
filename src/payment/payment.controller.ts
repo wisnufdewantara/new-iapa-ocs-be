@@ -21,11 +21,24 @@ import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import { UpdateWritersDto } from './dto/update-writers.dto';
 import { UpdatePaymentTypeDto } from './dto/update-payment-type.dto';
 import { paymentProofUploadOptions } from './payment-upload.config';
+import { ProofPullSyncService } from './proof-pull-sync.service';
 
 @Controller('api/payment')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class PaymentController {
-  constructor(private paymentService: PaymentService) {}
+  constructor(
+    private paymentService: PaymentService,
+    private proofPullSync: ProofPullSyncService,
+  ) {}
+
+  // Trigger manual buat proof-pull-sync (otomatis jalan tiap 15 menit
+  // via cron juga) — dipakai kalau admin butuh update instan, nggak mau
+  // nunggu jadwal cron berikutnya.
+  @Post('sync-proofs-from-ocs2')
+  @RequirePermission('payment', 'verify')
+  syncProofsFromOcs2() {
+    return this.proofPullSync.runPull();
+  }
 
   @Get('mine')
   @RequirePermission('payment', 'submit')

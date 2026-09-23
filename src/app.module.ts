@@ -1,4 +1,7 @@
 import { Module } from '@nestjs/common';
+// Alias -- nama "ScheduleModule" udah dipakai fitur jadwal sesi konferensi
+// (./schedule/schedule.module), beda total sama cron scheduler NestJS ini.
+import { ScheduleModule as CronScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { ConferenceModule } from './conference/conference.module';
@@ -21,6 +24,7 @@ import { EmailTemplateModule } from './email-template/email-template.module';
 
 @Module({
   imports: [
+    CronScheduleModule.forRoot(),
     PrismaModule,
     AuditLogModule,
     MailerModule,
