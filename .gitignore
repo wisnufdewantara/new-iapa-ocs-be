@@ -4,8 +4,8 @@ dist
 .env
 
 /generated/prisma
-SESSION_NOTES.md
-CUTOVER_CHECKLIST.md
+# Catatan/scratchpad markdown pribadi — standar di semua project di laptop ini
+.markdown/
 
 # Upload baru (Submit Paper dst) disimpan di disk server, bukan di-commit
 /uploads/*
