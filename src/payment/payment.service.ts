@@ -268,6 +268,12 @@ export class PaymentService {
         where: { payment_id: paymentId },
         data: { payment_status: 'waiting for verification' },
       });
+      // Arah kebalikan dari ProofPullSyncService (yang ocs2 -> newocs) —
+      // ini buat kasus peserta upload bukti LANGSUNG lewat newocs, biar
+      // ocs2 juga ikut tau statusnya udah "waiting for verification".
+      if (payment.paper_id) {
+        await this.ocs2Sync.pushPaymentStatusByPaperId(payment.paper_id, 'waiting for verification');
+      }
       return { uploaded: true };
     }
 
