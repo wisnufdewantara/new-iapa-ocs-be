@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
 import { AuditLogService } from '../common/audit-log.service';
@@ -109,6 +110,8 @@ export class PaymentService {
       return {
         writerId: w.writer_id,
         name: `${w.first_name} ${w.last_name}`,
+        firstName: w.first_name,
+        lastName: w.last_name,
         role: w.role,
         isMember: w.member_status,
         paymentOverride: w.payment_override,
@@ -139,19 +142,59 @@ export class PaymentService {
     };
   }
 
-  // Update role/member_status/payment_override/manual_fee tiap writer,
-  // lalu hitung ulang total SELALU server-side (JANGAN percaya total dari
-  // client) — sama seperti updatePaymentAndWriters di ocs2. manual_fee
-  // SEKALI diisi doang: kalau writer itu di DB udah punya manual_fee
-  // non-null, request buat ngubahnya lagi DIABAIKAN (bukan error, biar FE
-  // simpel — nilai lama tetap dipertahankan).
+  // "Edit Penulis" — update role/nama/member_status/payment_override/
+  // manual_fee tiap writer yang udah ada, TAMBAH writer baru, dan HAPUS
+  // writer, lalu hitung ulang total SELALU server-side (JANGAN percaya
+  // total dari client) — sama seperti updatePaymentAndWriters di ocs2.
+  // manual_fee SEKALI diisi doang: kalau writer itu di DB udah punya
+  // manual_fee non-null, request buat ngubahnya lagi DIABAIKAN (bukan
+  // error, biar FE simpel — nilai lama tetap dipertahankan).
   async updateWriters(
     paymentId: string,
-    writers: { writerId: string; role: string; isMember: boolean; paymentOverride: string | null; manualFee?: number | null }[],
+    writers: {
+      writerId: string;
+      firstName?: string;
+      lastName?: string;
+      role: string;
+      isMember: boolean;
+      paymentOverride: string | null;
+      manualFee?: number | null;
+    }[],
     actorUserId?: string,
+    newWriters?: {
+      firstName: string;
+      lastName?: string;
+      gender: string;
+      affiliation: string;
+      email: string;
+      phoneNumber?: string;
+      role: string;
+      isMember: boolean;
+    }[],
+    deleteWriterIds?: string[],
   ) {
     const payment = await this.prisma.payments.findUnique({ where: { payment_id: paymentId } });
     if (!payment || !payment.paper_id) throw new NotFoundException('Payment tidak ditemukan');
+    const paperId = payment.paper_id;
+
+    const remainingCount = writers.length + (newWriters?.length ?? 0);
+    if (remainingCount === 0) {
+      throw new BadRequestException('Paper harus punya minimal 1 penulis');
+    }
+
+    // Hapus dulu — jaga-jaga writer_id nyasar dari paper lain, cuma
+    // proses yang beneran nempel ke paper ini.
+    if (deleteWriterIds?.length) {
+      const toDelete = await this.prisma.paper_writers.findMany({
+        where: { writer_id: { in: deleteWriterIds }, paper_id: paperId },
+        select: { writer_id: true },
+      });
+      for (const d of toDelete) {
+        await this.prisma.paper_writers.delete({ where: { writer_id: d.writer_id } });
+        await this.ocs2Sync.pushWriterDelete(d.writer_id);
+      }
+      await this.auditLog.log(actorUserId, 'payment_delete_writers', 'payments', paymentId, JSON.stringify(deleteWriterIds));
+    }
 
     const existing = await this.prisma.paper_writers.findMany({
       where: { writer_id: { in: writers.map((w) => w.writerId) } },
@@ -160,11 +203,20 @@ export class PaymentService {
     const alreadyLocked = new Set(existing.filter((e) => e.manual_fee != null).map((e) => e.writer_id));
 
     for (const w of writers) {
-      const data: { role: string; member_status: boolean; payment_override: string | null; manual_fee?: number } = {
+      const data: {
+        role: string;
+        member_status: boolean;
+        payment_override: string | null;
+        manual_fee?: number;
+        first_name?: string;
+        last_name?: string;
+      } = {
         role: w.role,
         member_status: w.isMember,
         payment_override: w.paymentOverride,
       };
+      if (w.firstName !== undefined) data.first_name = w.firstName;
+      if (w.lastName !== undefined) data.last_name = w.lastName;
       // Cuma tulis manual_fee kalau BELUM pernah di-set sebelumnya —
       // sekali terkunci, permintaan ubah lagi diabaikan diam-diam.
       if (w.manualFee != null && !alreadyLocked.has(w.writerId)) {
@@ -173,7 +225,49 @@ export class PaymentService {
       await this.prisma.paper_writers.update({ where: { writer_id: w.writerId }, data });
     }
 
-    const { writers: allWriters, submitterWriter } = await this.findSubmitterWriter(payment.paper_id);
+    // Penulis baru — writer_order lanjut dari yang paling besar biar
+    // nongol di urutan paling akhir.
+    if (newWriters?.length) {
+      const maxOrderRow = await this.prisma.paper_writers.findFirst({
+        where: { paper_id: paperId },
+        orderBy: { writer_order: 'desc' },
+        select: { writer_order: true },
+      });
+      let nextOrder = (maxOrderRow?.writer_order ?? -1) + 1;
+      for (const nw of newWriters) {
+        const writerId = randomUUID();
+        await this.prisma.paper_writers.create({
+          data: {
+            writer_id: writerId,
+            paper_id: paperId,
+            first_name: nw.firstName,
+            last_name: nw.lastName ?? '',
+            gender: nw.gender,
+            affiliation: nw.affiliation,
+            email: nw.email,
+            phone_number: nw.phoneNumber,
+            role: nw.role,
+            member_status: nw.isMember,
+            writer_order: nextOrder++,
+          },
+        });
+        await this.ocs2Sync.pushWriterCreate({
+          writerId,
+          paperId,
+          firstName: nw.firstName,
+          lastName: nw.lastName ?? '',
+          gender: nw.gender,
+          affiliation: nw.affiliation,
+          email: nw.email,
+          phoneNumber: nw.phoneNumber,
+          role: nw.role,
+          isMember: nw.isMember,
+        });
+      }
+      await this.auditLog.log(actorUserId, 'payment_add_writers', 'payments', paymentId, JSON.stringify(newWriters));
+    }
+
+    const { writers: allWriters, submitterWriter } = await this.findSubmitterWriter(paperId);
     const total = this.computeTotal(allWriters, submitterWriter);
     const updated = await this.prisma.payments.update({
       where: { payment_id: paymentId },
@@ -181,13 +275,16 @@ export class PaymentService {
     });
     await this.auditLog.log(actorUserId, 'payment_update_writers', 'payments', paymentId, JSON.stringify(writers));
     if (total != null) {
-      await this.ocs2Sync.pushPaymentTotalByPaperId(payment.paper_id, total, 'waiting for payment');
+      await this.ocs2Sync.pushPaymentTotalByPaperId(paperId, total, 'waiting for payment');
     }
-    // Push member_status per writer juga — bukan cuma total-nya. Gap ini
-    // yang bikin ocs2 kadang nunjukkin Member/Non-Member basi meski
-    // total-nya udah match (lihat komentar di Ocs2SyncService).
+    // Push member_status + nama per writer juga — bukan cuma total-nya.
+    // Gap ini yang bikin ocs2 kadang nunjukkin data basi meski total-nya
+    // udah match (lihat komentar di Ocs2SyncService).
     for (const w of writers) {
-      await this.ocs2Sync.pushWriterMemberStatus(w.writerId, w.isMember);
+      const fields: Record<string, unknown> = { member_status: w.isMember };
+      if (w.firstName !== undefined) fields.first_name = w.firstName;
+      if (w.lastName !== undefined) fields.last_name = w.lastName;
+      await this.ocs2Sync.pushWriterFields(w.writerId, fields);
     }
     return this.paperDetail(updated.payment_id);
   }

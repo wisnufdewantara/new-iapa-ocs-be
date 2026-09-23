@@ -66,8 +66,80 @@ export class Ocs2SyncService {
   // independen per sistem). Kalau writer_id ini belum ada di ocs2 (baru
   // dibuat di newocs doang), push-nya diam-diam nggak update apa-apa
   // (0 rows) — bukan error, cuma nggak ada yang perlu disamain.
-  async pushWriterMemberStatus(writerId: string, isMember: boolean) {
-    await this.pushViaSupabaseRest('paper_writers', writerId, { member_status: isMember }, 'writer_id');
+  async pushWriterFields(writerId: string, fields: Record<string, unknown>) {
+    await this.pushViaSupabaseRest('paper_writers', writerId, fields, 'writer_id');
+  }
+
+  // Writer baru/dihapus lewat fitur "Edit Penulis" di newocs (payment
+  // detail page) — di-mirror ke Supabase/ocs2 pakai writer_id YANG SAMA
+  // biar konsisten kalau nanti perlu dicocokin lagi (misal push
+  // member_status berikutnya). POST/DELETE langsung ke PostgREST, bukan
+  // lewat pushViaSupabaseRest (yang didesain buat PATCH/filter-by-id).
+  async pushWriterCreate(writer: {
+    writerId: string;
+    paperId: string;
+    firstName: string;
+    lastName: string;
+    gender: string;
+    affiliation: string;
+    email: string;
+    phoneNumber?: string | null;
+    role: string;
+    isMember: boolean;
+  }) {
+    const url = process.env.SUPABASE_URL;
+    const secretKey = process.env.SUPABASE_SECRET_KEY;
+    if (!url || !secretKey) return;
+    try {
+      const res = await fetch(`${url}/rest/v1/paper_writers`, {
+        method: 'POST',
+        headers: {
+          apikey: secretKey,
+          Authorization: `Bearer ${secretKey}`,
+          'Content-Profile': 'sisko',
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          writer_id: writer.writerId,
+          paper_id: writer.paperId,
+          first_name: writer.firstName,
+          last_name: writer.lastName,
+          gender: writer.gender,
+          affiliation: writer.affiliation,
+          email: writer.email,
+          phone_number: writer.phoneNumber ?? null,
+          role: writer.role,
+          member_status: writer.isMember,
+        }),
+      });
+      if (!res.ok) {
+        this.logger.warn(`Push writer create ke ocs2 gagal untuk writer ${writer.writerId}: HTTP ${res.status} ${await res.text()}`);
+      }
+    } catch (err: any) {
+      this.logger.error(`Gagal push writer create untuk writer ${writer.writerId} ke ocs2: ${err.message}`);
+    }
+  }
+
+  async pushWriterDelete(writerId: string) {
+    const url = process.env.SUPABASE_URL;
+    const secretKey = process.env.SUPABASE_SECRET_KEY;
+    if (!url || !secretKey) return;
+    try {
+      const res = await fetch(`${url}/rest/v1/paper_writers?writer_id=eq.${writerId}`, {
+        method: 'DELETE',
+        headers: {
+          apikey: secretKey,
+          Authorization: `Bearer ${secretKey}`,
+          'Content-Profile': 'sisko',
+        },
+      });
+      if (!res.ok) {
+        this.logger.warn(`Push writer delete ke ocs2 gagal untuk writer ${writerId}: HTTP ${res.status} ${await res.text()}`);
+      }
+    } catch (err: any) {
+      this.logger.error(`Gagal push writer delete untuk writer ${writerId} ke ocs2: ${err.message}`);
+    }
   }
 
   // newocs sekarang jadi sumber utama buat keputusan Accept/Reject +

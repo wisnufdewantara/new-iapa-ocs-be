@@ -85,7 +85,13 @@ export class PaymentController {
     @Body() dto: UpdateWritersDto,
     @Req() req: any,
   ) {
-    return this.paymentService.updateWriters(paymentId, dto.writers, (req.user as { userId: string }).userId);
+    return this.paymentService.updateWriters(
+      paymentId,
+      dto.writers,
+      (req.user as { userId: string }).userId,
+      dto.newWriters,
+      dto.deleteWriterIds,
+    );
   }
 
   @Post(':paymentId/verify')
