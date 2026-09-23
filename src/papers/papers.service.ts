@@ -160,6 +160,10 @@ export class PapersService {
           orderBy: { writer_order: 'asc' },
           select: { first_name: true, last_name: true, email: true },
         },
+        payments: {
+          select: { payment_id: true },
+          take: 1,
+        },
       },
     });
 
@@ -168,6 +172,7 @@ export class PapersService {
       paperTitle: p.paper_title,
       documentUrl: p.document_url,
       conferenceStatus: p.conference_status,
+      paymentId: p.payments[0]?.payment_id ?? null,
       type: p.type,
       subTheme: p.sub_theme,
       presenterName: p.paper_writers[0] ? `${p.paper_writers[0].first_name} ${p.paper_writers[0].last_name}` : null,
