@@ -33,17 +33,32 @@ export class SettingsService {
       where: { setting_key: { in: SYSTEM_SETTING_KEYS.map((k) => k.key) } },
     });
     const byKey = new Map(rows.map((r) => [r.setting_key, r]));
-    return SYSTEM_SETTING_KEYS.map(({ key, label }) => ({
-      settingKey: key,
-      label,
-      settingValue: byKey.get(key)?.setting_value ?? '',
-    }));
+    return SYSTEM_SETTING_KEYS.map(({ key, label }) => {
+      const raw = byKey.get(key)?.setting_value ?? '';
+      // smtp.password JANGAN PERNAH dikirim balik ke frontend dalam
+      // bentuk asli — sebelumnya GET /settings ngembaliin plaintext-nya
+      // mentah-mentah walau di UI cuma dirender sebagai <input
+      // type="password"> (itu cuma nyembunyiin visual, nilai aslinya
+      // tetap ada utuh di response API/DOM). Sentinel dipakai biar admin
+      // masih bisa lihat "udah ke-set atau belum" tanpa expose isinya;
+      // dianggap "diubah" cuma kalau draft-nya beda dari sentinel ini.
+      const settingValue = key === 'smtp.password' ? (raw ? '••••••••' : '') : raw;
+      return { settingKey: key, label, settingValue };
+    });
   }
 
   async update(key: string, value: string, actorUserId?: string) {
     const known = SYSTEM_SETTING_KEYS.find((k) => k.key === key);
     if (!known) {
       throw new Error(`Setting key tidak dikenal: ${key}`);
+    }
+    // Jaga-jaga: sentinel masking di findAll() harusnya udah nyegah FE
+    // ngirim balik nilai ini secara nggak sengaja (dianggap "unchanged"),
+    // tapi kalau ada request langsung ke API (bukan lewat UI) yang somehow
+    // ngirim sentinel-nya mentah-mentah, tolak daripada nimpa password
+    // asli jadi literal "••••••••".
+    if (key === 'smtp.password' && value === '••••••••') {
+      throw new Error('Nilai tidak valid untuk smtp.password');
     }
     const updated = await this.prisma.app_settings.upsert({
       where: { setting_key: key },
