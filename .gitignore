@@ -13,3 +13,6 @@ CUTOVER_CHECKLIST.md
 
 # Lock file cron sync (scripts/sync-from-supabase.mjs), dibuat runtime
 scripts/.sync.lock
+
+# Claude Code personal override — settings.json (shared team policy) tetap di-commit
+.claude/settings.local.json

@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.local)",
+      "Read(.env.*.local)",
+      "Read(**/.env)",
+      "Read(**/.env.local)",
+      "Read(**/.env.*.local)",
+      "Read(.pem)",
+      "Read(.key)",
+      "Read(.pkcs8)",
+      "Read(.netrc)",
+      "Read(.npmrc)",
+      "Read(.yarnrc)",
+      "Read(git-credentials)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Edit(.env)",
+      "Edit(.env.local)",
+      "Edit(.env.*.local)",
+      "Edit(.pem)",
+      "Edit(.key)",
+      "Edit(git-credentials)"
+    ]
+  }
+}
