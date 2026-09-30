@@ -37,7 +37,18 @@ import { join } from 'path';
 // dari Supabase itu yang dimaksud "priority Kila", bukan config newocs.
 const TABLES = [
   { name: 'users', pk: 'user_id' },
-  { name: 'conference', pk: 'conference_id' },
+  {
+    name: 'conference',
+    pk: 'conference_id',
+    // papers_submission_open ADA di kolom `conference` Supabase, tapi
+    // newocs nyimpen konsep yang sama (toggle buka/tutup submission
+    // paper) lewat baris conference_settings (key-value), BUKAN kolom
+    // di tabel conference — dua fitur independen punya nama mirip,
+    // beda mekanisme kontrol (masing-masing sistem admin-nya sendiri).
+    // Skip biar nggak nimpa toggle newocs dengan nilai dari ocs2, dan
+    // skema newocs nggak perlu ikut punya kolom yang nggak dipakai.
+    excludeColumns: ['papers_submission_open'],
+  },
   { name: 'conference_sub_theme', pk: 'id' },
   { name: 'papers', pk: 'paper_id' },
   { name: 'paper_writers', pk: 'writer_id' },
@@ -98,7 +109,8 @@ async function syncTable(supabase, dewaweb, table) {
   const { rows } = await supabase.query(`SELECT * FROM sisko.${table.name}`);
   if (rows.length === 0) return { table: table.name, rows: 0, skipped: [] };
 
-  const columns = Object.keys(rows[0]);
+  const exclude = new Set(table.excludeColumns ?? []);
+  const columns = Object.keys(rows[0]).filter((c) => !exclude.has(c));
   const updateCols = columns.filter((c) => c !== table.pk);
   const conflictClause =
     updateCols.length === 0
