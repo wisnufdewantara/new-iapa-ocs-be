@@ -299,6 +299,12 @@ model payments {
   payment_proofs payment_proofs[]
   papers         papers?          @relation(fields: [paper_id], references: [paper_id], onDelete: Cascade, onUpdate: NoAction)
   users          users            @relation(fields: [submitter_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+
+  // Ditambah manual via psql 2026-09-30 (bareng ganti trigger create_payment_on_acceptance
+  // ke ON CONFLICT DO NOTHING) — nutup race condition yang bikin 1 paper bisa
+  // punya 2 baris payment. Dideklarasi di sini juga biar `prisma db push`
+  // nggak nyoba nge-drop constraint yang udah ada di database.
+  @@unique([paper_id], map: "payments_paper_id_unique")
 }
 
 model schedule {
@@ -358,6 +364,20 @@ model users {
   papers                                            papers[]
   participant                                       participant?
   payments                                          payments[]
+  password_reset_tokens                             password_reset_tokens[]
+}
+
+// Kolom ini SENGAJA nggak ada di Supabase (users di-sync dari sana) —
+// aman, sync cuma nulis kolom yang ADA di hasil SELECT Supabase, jadi
+// nggak akan kesentuh/ke-reset sync. Token sekali pakai, expire manual
+// dicek di service (bukan lewat TTL Postgres), 1 jam dari saat dibuat.
+model password_reset_tokens {
+  token      String    @id @db.VarChar(64)
+  user_id    String    @db.Uuid
+  expires_at DateTime
+  used_at    DateTime?
+  created_at DateTime  @default(now())
+  users      users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
 }
 
 enum conference_status_enum {

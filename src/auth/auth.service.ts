@@ -1,16 +1,25 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailerService } from '../mailer/mailer.service';
+import { EmailTemplateService } from '../email-template/email-template.service';
 import { RegisterDto } from './dto/register.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 jam
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
+    private mailer: MailerService,
+    private emailTemplate: EmailTemplateService,
   ) {}
 
   async findProfile(userId: string) {
@@ -112,6 +121,62 @@ export class AuthService {
       data: { password: hashedPassword, hash_algorithm: 'bcrypt' },
     });
     return { changed: true };
+  }
+
+  // SENGAJA selalu balikin pesan generik yang sama baik akunnya ketemu
+  // maupun nggak — biar orang luar nggak bisa dipakai buat nebak-nebak
+  // email/username mana yang terdaftar (user enumeration).
+  async forgotPassword(usernameOrEmail: string) {
+    const genericResult = { sent: true };
+    const user = await this.prisma.users.findFirst({
+      where: { OR: [{ username: usernameOrEmail }, { email: usernameOrEmail }] },
+    });
+    if (!user) return genericResult;
+
+    const token = randomBytes(32).toString('hex');
+    await this.prisma.password_reset_tokens.create({
+      data: {
+        token,
+        user_id: user.user_id,
+        expires_at: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+      },
+    });
+
+    const resetLink = `${process.env.FRONTEND_URL || 'https://dev-ocs.iapa.or.id'}/reset-password?token=${token}`;
+    const { subject, bodyHtml } = await this.emailTemplate.render('password_reset', {
+      firstName: user.first_name,
+      resetLink,
+    });
+    try {
+      await this.mailer.sendMail(user.email, subject, bodyHtml);
+    } catch (err: any) {
+      // Jangan biarin kegagalan kirim email (mis. SMTP belum
+      // dikonfigurasi) balik jadi 500 ke client — itu bakal jadi celah
+      // enumeration (akun ada = error, akun nggak ada = sukses). Log di
+      // server aja buat ops, tetap balikin respons generik yang sama.
+      this.logger.error(`Gagal kirim email reset password ke ${user.email}: ${err.message}`);
+    }
+    return genericResult;
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    const row = await this.prisma.password_reset_tokens.findUnique({ where: { token } });
+    if (!row || row.used_at || row.expires_at < new Date()) {
+      throw new BadRequestException('Link reset password tidak valid atau sudah kedaluwarsa. Minta link baru.');
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await this.prisma.$transaction([
+      this.prisma.users.update({
+        where: { user_id: row.user_id },
+        data: { password: hashedPassword, hash_algorithm: 'bcrypt' },
+      }),
+      this.prisma.password_reset_tokens.update({
+        where: { token },
+        data: { used_at: new Date() },
+      }),
+    ]);
+    return { reset: true };
   }
 
   async login(usernameOrEmail: string, password: string) {

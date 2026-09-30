@@ -40,4 +40,12 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplateDefault[] = [
     bodyHtml: '<p>Dear {{firstName}},</p><p>Terlampir invoice pembayaran {{description}}.</p>{{deadlineBlock}}',
     variables: ['firstName', 'description', 'deadlineBlock'],
   },
+  {
+    key: 'password_reset',
+    label: 'Reset Password',
+    subject: 'Reset Password — IAPA OCS',
+    bodyHtml:
+      '<p>Dear {{firstName}},</p><p>Klik link berikut untuk atur ulang password Anda (berlaku 1 jam):</p><p><a href="{{resetLink}}">{{resetLink}}</a></p><p>Kalau Anda tidak meminta reset password, abaikan email ini — password Anda tetap aman.</p>',
+    variables: ['firstName', 'resetLink'],
+  },
 ];
