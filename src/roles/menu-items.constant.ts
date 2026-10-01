@@ -19,6 +19,7 @@ export const MENU_KEYS = [
   '/admin/permissions',
   '/admin/settings',
   '/admin/developer',
+  '/admin/mail-log',
   '/guide',
   '/profile',
 ] as const;
@@ -42,6 +43,7 @@ export const DEFAULT_ROLE_MENU: Record<string, string[]> = {
     '/admin/permissions',
     '/admin/settings',
     '/admin/developer',
+    '/admin/mail-log',
     '/guide',
     '/profile',
   ],

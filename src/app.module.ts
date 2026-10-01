@@ -21,6 +21,7 @@ import { ParticipantModule } from './participant/participant.module';
 import { DeveloperModule } from './developer/developer.module';
 import { FunctionalTestModule } from './functional-test/functional-test.module';
 import { EmailTemplateModule } from './email-template/email-template.module';
+import { EmailLogModule } from './email-log/email-log.module';
 import { CertificateTemplatesModule } from './certificate-templates/certificate-templates.module';
 import { CertificateValidationModule } from './certificate-validation/certificate-validation.module';
 
@@ -48,6 +49,7 @@ import { CertificateValidationModule } from './certificate-validation/certificat
     DeveloperModule,
     FunctionalTestModule,
     EmailTemplateModule,
+    EmailLogModule,
   ],
 })
 export class AppModule {}

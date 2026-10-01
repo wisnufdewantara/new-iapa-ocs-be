@@ -39,6 +39,38 @@ model email_template {
   updated_at   DateTime @default(now()) @updatedAt
 }
 
+// Catatan tiap percobaan kirim email keluar, dicatat TERPUSAT di
+// MailerService.sendMail. Alasan ada: SMTP via nodemailer TIDAK nyimpen
+// salinan ke folder "Sent" webmail pengirim (sekretariat@iapa.or.id),
+// jadi tanpa tabel ini nggak ada cara mantau "email mana yang terkirim /
+// gagal". Dipakai halaman "Mail Log Monitoring" di section Developer.
+//
+// status: 'sent' | 'failed'. error diisi cuma kalau failed.
+// opened_at/open_count = tracking "read" lewat pixel, sifatnya BEST-EFFORT:
+// banyak klien blok/preload gambar (Gmail proxy, Apple Mail Privacy
+// Protection) jadi bisa false positive/negative — JANGAN dianggap pasti.
+// Butuh env BACKEND_URL buat URL absolut pixel; kalau kosong, tracking
+// read nonaktif tapi log sent/failed tetap jalan.
+//
+// Baris > 30 hari dihapus otomatis tiap hari (EmailLogCleanupService).
+model email_log {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recipient   String    @db.VarChar(255)
+  subject     String    @db.VarChar(255)
+  type        String    @default("other") @db.VarChar(40)
+  status      String    @db.VarChar(20)
+  error       String?
+  related_id  String?   @db.VarChar(255)
+  track_token String    @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  opened_at   DateTime? @db.Timestamp(6)
+  open_count  Int       @default(0)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+
+  @@index([created_at])
+  @@index([type])
+  @@index([status])
+}
+
 model conference_settings {
   id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   conference_id String     @db.Uuid
@@ -438,6 +470,7 @@ model certificate_templates {
   updated_at       DateTime @default(now()) @updatedAt @db.Timestamp(6)
   conference_certificate_templates conference_certificate_templates[]
   certificate_template_signers     certificate_template_signers[]
+  certificate_template_placeholders certificate_template_placeholders[]
   issued_certificates              issued_certificates[]
 }
 
@@ -471,6 +504,31 @@ model certificate_template_signers {
   width               Float    @default(0.15)
   created_at          DateTime @default(now()) @db.Timestamp(6)
   updated_at          DateTime @default(now()) @updatedAt @db.Timestamp(6)
+  certificate_templates certificate_templates @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  @@unique([template_id, slot])
+}
+
+// Sampai 10 slot teks manual tambahan per template (di luar Nama Penerima
+// & Label yang udah ada field khususnya) — buat nama acara, kalimat
+// partisipasi, dll. `content` boleh teks polos atau diselingi
+// {{variabel}} (lihat CERTIFICATE_PLACEHOLDER_VARIABLES di
+// certificate-placeholder-variables.constant.ts), diinterpolasi sama
+// persis saat render & SAMA buat semua penerima dalam satu template
+// (nggak ada input per-orang) — variabel kayak {{name}} cuma buat
+// ngulang nama penerima di tempat lain kalau perlu, bukan per-penerima.
+model certificate_template_placeholders {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  template_id String  @db.Uuid
+  slot       Int
+  content    String   @db.VarChar(500)
+  font_key   String   @default("cardo_regular") @db.VarChar(50)
+  font_size  Float    @default(0.025)
+  color      String   @default("#17366A") @db.VarChar(7)
+  pos_x      Float    @default(0.5)
+  pos_y      Float    @default(0.6)
+  max_width  Float    @default(0.6)
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamp(6)
   certificate_templates certificate_templates @relation(fields: [template_id], references: [id], onDelete: Cascade)
   @@unique([template_id, slot])
 }

@@ -89,6 +89,8 @@ export class SettingsService {
       recipient,
       'Test SMTP — newocs',
       '<p>Ini email percobaan dari halaman System Settings newocs. Kalau kamu menerima ini, konfigurasi SMTP sudah benar.</p>',
+      undefined,
+      { type: 'test' },
     );
     return { sent: true, to: recipient };
   }

@@ -15,6 +15,43 @@ import {
 } from 'class-validator';
 import { FONT_KEYS } from '../certificate-fonts.constant';
 
+class PlaceholderDto {
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  slot: number;
+
+  @IsString()
+  @MaxLength(500)
+  content: string;
+
+  @IsIn(FONT_KEYS)
+  fontKey: string;
+
+  @IsNumber()
+  @Min(0.01)
+  @Max(0.1)
+  fontSize: number;
+
+  @Matches(/^#[0-9a-fA-F]{6}$/)
+  color: string;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  posX: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  posY: number;
+
+  @IsNumber()
+  @Min(0.1)
+  @Max(1)
+  maxWidth: number;
+}
+
 class SignerDto {
   @IsInt()
   @Min(1)
@@ -133,6 +170,12 @@ export class UpdateCertificateTemplateDto {
   @Type(() => SignerDto)
   @ArrayMaxSize(3)
   signers?: SignerDto[];
+
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => PlaceholderDto)
+  @ArrayMaxSize(10)
+  placeholders?: PlaceholderDto[];
 
   @IsOptional()
   @IsBoolean()

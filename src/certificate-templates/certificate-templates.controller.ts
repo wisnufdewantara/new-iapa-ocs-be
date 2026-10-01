@@ -49,6 +49,11 @@ export class CertificateTemplatesController {
     return this.templates.getFonts();
   }
 
+  @Get('placeholder-variables')
+  getPlaceholderVariables() {
+    return this.templates.getPlaceholderVariables();
+  }
+
   @Get('mappings')
   getMappings(@Query('conferenceId', ParseUUIDPipe) conferenceId: string) {
     return this.templates.getMappings(conferenceId);
@@ -112,9 +117,17 @@ export class CertificateTemplatesController {
   @Header('Content-Type', 'application/pdf')
   async preview(@Param('id', ParseUUIDPipe) id: string, @Body('sampleName') sampleName: string, @Res() res: Response) {
     const template = await this.templates.renderPreviewTemplate(id);
+    const name = sampleName || 'Nama Lengkap Peserta';
     const pdf = await this.renderer.render(template, {
-      recipientName: sampleName || 'Nama Lengkap Peserta',
+      recipientName: name,
       certTypeLabel: 'Presenter',
+      variables: {
+        name,
+        certType: 'Presenter',
+        conferenceName: 'Nama Conference Contoh',
+        paperTitle: 'Judul Paper Contoh',
+        eventDate: new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+      },
     });
     res.setHeader('Content-Disposition', 'inline; filename="preview.pdf"');
     res.send(pdf);

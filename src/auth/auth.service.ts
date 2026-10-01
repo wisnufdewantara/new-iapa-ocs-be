@@ -148,7 +148,7 @@ export class AuthService {
       resetLink,
     });
     try {
-      await this.mailer.sendMail(user.email, subject, bodyHtml);
+      await this.mailer.sendMail(user.email, subject, bodyHtml, undefined, { type: 'password_reset', relatedId: user.user_id });
     } catch (err: any) {
       // Jangan biarin kegagalan kirim email (mis. SMTP belum
       // dikonfigurasi) balik jadi 500 ke client — itu bakal jadi celah

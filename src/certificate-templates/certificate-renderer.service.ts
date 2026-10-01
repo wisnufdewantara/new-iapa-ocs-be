@@ -8,6 +8,7 @@ import * as QRCode from 'qrcode';
 import { loadFontBytes } from './certificate-fonts.constant';
 import { uploadUrlToDiskPath } from './certificate-file.util';
 import { layoutPage2, parsePage2Content } from './page2-layout';
+import { interpolatePlaceholder } from './certificate-placeholder-variables.constant';
 
 // Semua posisi di template disimpan sebagai FRAKSI 0..1 dari lebar(x)/
 // tinggi(y) HALAMAN PDF, menandai TITIK TENGAH elemen — lihat komentar di
@@ -49,12 +50,27 @@ type TemplateWithSigners = {
     pos_y: number;
     width: number;
   }[];
+  certificate_template_placeholders: {
+    slot: number;
+    content: string;
+    font_key: string;
+    font_size: number;
+    color: string;
+    pos_x: number;
+    pos_y: number;
+    max_width: number;
+  }[];
 };
 
 export interface RenderContext {
   recipientName: string;
   certTypeLabel: string;
   verificationUrl?: string;
+  // Dipakai interpolasi {{variabel}} di teks placeholder manual — lihat
+  // certificate-placeholder-variables.constant.ts buat daftar key yang
+  // tersedia. Dibangun oleh caller (certificate.service.ts renderFor())
+  // dari data recipient yang sama dipakai buat issued_certificates.
+  variables?: Record<string, string>;
 }
 
 function hexToRgb(hex: string) {
@@ -77,6 +93,32 @@ export class CertificateRendererService {
     return width;
   }
 
+  // Word-wrap + center tiap baris — dipakai buat placeholder teks manual,
+  // yang isinya bisa berupa kalimat (beda dari Nama/Label yang single-line).
+  drawCenteredWrappedText(page: PDFPage, font: PDFFont, text: string, cx: number, cy: number, size: number, maxWidth: number, color: ReturnType<typeof rgb>) {
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let line = '';
+    for (const word of words) {
+      const test = line ? `${line} ${word}` : word;
+      if (font.widthOfTextAtSize(test, size) > maxWidth && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+
+    const lineHeight = size * 1.3;
+    const totalHeight = lineHeight * lines.length;
+    let y = cy + totalHeight / 2 - lineHeight * 0.8;
+    for (const l of lines) {
+      this.drawCenteredText(page, font, l, cx, y, size, color);
+      y -= lineHeight;
+    }
+  }
+
   async render(template: TemplateWithSigners, ctx: RenderContext): Promise<Buffer> {
     const W = 842;
     const H = (W * template.design_height_px) / template.design_width_px;
@@ -92,6 +134,20 @@ export class CertificateRendererService {
 
     const nameFont = await pdfDoc.embedFont(loadFontBytes(template.name_font_key), { subset: false });
     const bodyFont = await pdfDoc.embedFont(loadFontBytes(template.body_font_key), { subset: false });
+
+    // Cache per font_key biar placeholder yang pakai font sama nggak
+    // embed ulang berkali-kali dalam satu render.
+    const fontCache = new Map<string, PDFFont>([
+      [template.name_font_key, nameFont],
+      [template.body_font_key, bodyFont],
+    ]);
+    const embedFontCached = async (fontKey: string) => {
+      const cached = fontCache.get(fontKey);
+      if (cached) return cached;
+      const embedded = await pdfDoc.embedFont(loadFontBytes(fontKey), { subset: false });
+      fontCache.set(fontKey, embedded);
+      return embedded;
+    };
 
     // Nama: auto-shrink kalau lebih lebar dari name_max_width.
     let nameSize = template.name_font_size * H;
@@ -119,6 +175,22 @@ export class CertificateRendererService {
         H * (1 - template.label_pos_y),
         template.label_font_size * H,
         hexToRgb(template.name_color),
+      );
+    }
+
+    for (const placeholder of template.certificate_template_placeholders) {
+      const content = interpolatePlaceholder(placeholder.content, ctx.variables ?? {});
+      if (!content) continue;
+      const font = await embedFontCached(placeholder.font_key);
+      this.drawCenteredWrappedText(
+        page,
+        font,
+        content,
+        placeholder.pos_x * W,
+        H * (1 - placeholder.pos_y),
+        placeholder.font_size * H,
+        placeholder.max_width * W,
+        hexToRgb(placeholder.color),
       );
     }
 

@@ -184,6 +184,7 @@ export class LoaService {
       subject,
       bodyHtml,
       [{ filename: `LoA-${paper.paper_id}.pdf`, content: pdfBytes }],
+      { type: 'loa', relatedId: paper.paper_id },
     );
     await this.prisma.papers.update({ where: { paper_id: paperId }, data: { sent_loa: true } });
     return { sent: true };

@@ -489,6 +489,7 @@ export class PaymentService {
       subject,
       bodyHtml,
       [{ filename: `Invoice-${paymentId}.pdf`, content: pdf }],
+      { type: 'invoice', relatedId: paymentId },
     );
     await this.prisma.payments.update({ where: { payment_id: paymentId }, data: { sent_invoice: true } });
     if (payment.paper_id) {
@@ -527,6 +528,7 @@ export class PaymentService {
       subject,
       bodyHtml,
       [{ filename: `Invoice-${attendanceId}.pdf`, content: pdf }],
+      { type: 'invoice', relatedId: attendanceId },
     );
     await this.prisma.participant.update({ where: { attendance_id: attendanceId }, data: { sent_invoice: true } });
     return { sent: true };

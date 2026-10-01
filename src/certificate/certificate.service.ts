@@ -143,8 +143,8 @@ export class CertificateService {
     if (!template) return this.generateLegacyPdf(r.name, type);
 
     let verificationUrl: string | undefined;
+    const eventDate = r.paperAcceptedAt ?? r.conferenceDate;
     if (template.qr_enabled) {
-      const eventDate = r.paperAcceptedAt ?? r.conferenceDate;
       const issuedRow = await this.issued.issue({
         certType,
         recipientName: r.name,
@@ -160,7 +160,17 @@ export class CertificateService {
       verificationUrl = this.issued.buildVerificationUrl(issuedRow.verification_code);
     }
 
-    return this.renderer.render(template, { recipientName: r.name, certTypeLabel: type, verificationUrl });
+    // Variabel buat interpolasi {{...}} di placeholder teks manual (lihat
+    // certificate-placeholder-variables.constant.ts).
+    const variables: Record<string, string> = {
+      name: r.name,
+      certType: type,
+      conferenceName: r.conferenceName,
+      paperTitle: r.paperTitle ?? '',
+      eventDate: eventDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+    };
+
+    return this.renderer.render(template, { recipientName: r.name, certTypeLabel: type, verificationUrl, variables });
   }
 
   private async attendanceRecipient(attendanceId: string): Promise<ResolvedRecipient> {
@@ -218,6 +228,7 @@ export class CertificateService {
       subject,
       bodyHtml,
       [{ filename: `Sertifikat-${attendanceId}.pdf`, content: pdfBytes }],
+      { type: 'certificate', relatedId: attendanceId },
     );
     await this.prisma.attendance.update({
       where: { id: attendanceId },
@@ -280,6 +291,7 @@ export class CertificateService {
         subject,
         bodyHtml,
         [{ filename: `Sertifikat-BestPaper-${conferenceId}.pdf`, content: pdfBytes }],
+        { type: 'certificate_award', relatedId: conferenceId },
       );
       await this.prisma.conference.update({ where: { conference_id: conferenceId }, data: { paper_certificate_sent: true } });
     } else {
@@ -307,6 +319,7 @@ export class CertificateService {
         subject,
         bodyHtml,
         [{ filename: `Sertifikat-BestPresenter-${conferenceId}.pdf`, content: pdfBytes }],
+        { type: 'certificate_award', relatedId: conferenceId },
       );
       await this.prisma.conference.update({ where: { conference_id: conferenceId }, data: { presenter_certificate_sent: true } });
     }

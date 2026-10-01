@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../common/audit-log.service';
 import { CERTIFICATE_FONTS } from './certificate-fonts.constant';
+import { PLACEHOLDER_VARIABLES } from './certificate-placeholder-variables.constant';
 import { readImageMeta } from './certificate-file.util';
 import { UpdateCertificateTemplateDto } from './dto/update-certificate-template.dto';
 import { UpdateTemplateMappingsDto } from './dto/update-template-mappings.dto';
@@ -25,6 +26,10 @@ export class CertificateTemplatesService {
     return Object.entries(CERTIFICATE_FONTS).map(([key, def]) => ({ key, label: def.label }));
   }
 
+  getPlaceholderVariables() {
+    return PLACEHOLDER_VARIABLES;
+  }
+
   async findAll() {
     const templates = await this.prisma.certificate_templates.findMany({
       orderBy: { created_at: 'desc' },
@@ -36,7 +41,10 @@ export class CertificateTemplatesService {
   async findOne(id: string) {
     const t = await this.prisma.certificate_templates.findUnique({
       where: { id },
-      include: { certificate_template_signers: { orderBy: { slot: 'asc' } } },
+      include: {
+        certificate_template_signers: { orderBy: { slot: 'asc' } },
+        certificate_template_placeholders: { orderBy: { slot: 'asc' } },
+      },
     });
     if (!t) throw new NotFoundException('Template sertifikat tidak ditemukan');
     return this.toDetail(t);
@@ -62,7 +70,7 @@ export class CertificateTemplatesService {
     const existing = await this.prisma.certificate_templates.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Template sertifikat tidak ditemukan');
 
-    const { signers, ...rest } = dto;
+    const { signers, placeholders, ...rest } = dto;
     const data: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rest)) {
       if (value === undefined) continue;
@@ -96,6 +104,37 @@ export class CertificateTemplatesService {
               pos_x: s.posX,
               pos_y: s.posY,
               width: s.width,
+            },
+          });
+        }
+      }
+      if (placeholders) {
+        const keepSlots = placeholders.map((p) => p.slot);
+        await tx.certificate_template_placeholders.deleteMany({
+          where: { template_id: id, slot: { notIn: keepSlots.length ? keepSlots : [0] } },
+        });
+        for (const p of placeholders) {
+          await tx.certificate_template_placeholders.upsert({
+            where: { template_id_slot: { template_id: id, slot: p.slot } },
+            create: {
+              template_id: id,
+              slot: p.slot,
+              content: p.content,
+              font_key: p.fontKey,
+              font_size: p.fontSize,
+              color: p.color,
+              pos_x: p.posX,
+              pos_y: p.posY,
+              max_width: p.maxWidth,
+            },
+            update: {
+              content: p.content,
+              font_key: p.fontKey,
+              font_size: p.fontSize,
+              color: p.color,
+              pos_x: p.posX,
+              pos_y: p.posY,
+              max_width: p.maxWidth,
             },
           });
         }
@@ -163,17 +202,29 @@ export class CertificateTemplatesService {
   async duplicate(id: string) {
     const source = await this.prisma.certificate_templates.findUnique({
       where: { id },
-      include: { certificate_template_signers: true },
+      include: { certificate_template_signers: true, certificate_template_placeholders: true },
     });
     if (!source) throw new NotFoundException('Template sertifikat tidak ditemukan');
 
-    const { id: _id, created_at: _c, updated_at: _u, certificate_template_signers, is_default: _d, ...rest } = source;
+    const {
+      id: _id,
+      created_at: _c,
+      updated_at: _u,
+      certificate_template_signers,
+      certificate_template_placeholders,
+      is_default: _d,
+      ...rest
+    } = source;
     const copy = await this.prisma.certificate_templates.create({
       data: { ...rest, name: `${source.name} (Salinan)`, is_default: false },
     });
     for (const s of certificate_template_signers) {
       const { id: _sid, template_id: _tid, created_at: _sc, updated_at: _su, ...signerRest } = s;
       await this.prisma.certificate_template_signers.create({ data: { ...signerRest, template_id: copy.id } });
+    }
+    for (const p of certificate_template_placeholders) {
+      const { id: _pid, template_id: _ptid, created_at: _pc, updated_at: _pu, ...placeholderRest } = p;
+      await this.prisma.certificate_template_placeholders.create({ data: { ...placeholderRest, template_id: copy.id } });
     }
     return this.findOne(copy.id);
   }
@@ -236,20 +287,29 @@ export class CertificateTemplatesService {
       if (mapping) {
         return this.prisma.certificate_templates.findUnique({
           where: { id: mapping.template_id },
-          include: { certificate_template_signers: { orderBy: { slot: 'asc' } } },
+          include: {
+            certificate_template_signers: { orderBy: { slot: 'asc' } },
+            certificate_template_placeholders: { orderBy: { slot: 'asc' } },
+          },
         });
       }
     }
     return this.prisma.certificate_templates.findFirst({
       where: { is_default: true },
-      include: { certificate_template_signers: { orderBy: { slot: 'asc' } } },
+      include: {
+        certificate_template_signers: { orderBy: { slot: 'asc' } },
+        certificate_template_placeholders: { orderBy: { slot: 'asc' } },
+      },
     });
   }
 
   async renderPreviewTemplate(id: string) {
     const t = await this.prisma.certificate_templates.findUnique({
       where: { id },
-      include: { certificate_template_signers: { orderBy: { slot: 'asc' } } },
+      include: {
+        certificate_template_signers: { orderBy: { slot: 'asc' } },
+        certificate_template_placeholders: { orderBy: { slot: 'asc' } },
+      },
     });
     if (!t) throw new NotFoundException('Template sertifikat tidak ditemukan');
     return t;
@@ -315,6 +375,16 @@ export class CertificateTemplatesService {
         posX: s.pos_x,
         posY: s.pos_y,
         width: s.width,
+      })),
+      placeholders: (t.certificate_template_placeholders ?? []).map((p: any) => ({
+        slot: p.slot,
+        content: p.content,
+        fontKey: p.font_key,
+        fontSize: p.font_size,
+        color: p.color,
+        posX: p.pos_x,
+        posY: p.pos_y,
+        maxWidth: p.max_width,
       })),
     };
   }
