@@ -11,7 +11,7 @@ export const PERMISSION_CATALOG: Record<string, string[]> = {
   users: ['manage'],
   roles: ['manage'],
   loa: ['manage'],
-  certificate: ['manage', 'manage_awards'],
+  certificate: ['manage', 'manage_awards', 'manage_templates'],
   admin_gate: ['verify'],
   payment: ['submit', 'verify', 'manage_types'],
   participant: ['join'],
@@ -40,6 +40,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, { module: string; action: 
     { module: 'loa', action: 'manage' },
     { module: 'certificate', action: 'manage' },
     { module: 'certificate', action: 'manage_awards' },
+    { module: 'certificate', action: 'manage_templates' },
   ],
   Reviewer: [{ module: 'papers', action: 'review' }],
   Peserta: [

@@ -7,6 +7,10 @@ const fontkit = require('@pdf-lib/fontkit');
 import { PrismaService } from '../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
 import { EmailTemplateService } from '../email-template/email-template.service';
+import { CertificateTemplatesService } from '../certificate-templates/certificate-templates.service';
+import { CertificateRendererService } from '../certificate-templates/certificate-renderer.service';
+import { IssuedCertificatesService } from '../certificate-templates/issued-certificates.service';
+import { CERT_TYPE_KEY, CertificateType } from '../certificate-templates/certificate-types';
 
 const TEMPLATE_PATH = join(process.cwd(), 'assets', 'templates', 'Certificate_2026.pdf');
 const FONT_PATH = join(process.cwd(), 'assets', 'fonts', 'DMSerifDisplay-Italic.ttf');
@@ -14,10 +18,25 @@ const FONT_PATH = join(process.cwd(), 'assets', 'fonts', 'DMSerifDisplay-Italic.
 // Kerangka ukur referensi template (1084 x 750), niru posisi persis dari
 // CertificateServiceImpl.java (CMS-IAPA-BE) — satu template dipakai
 // semua tipe, nama peran dicetak program, bukan dibakukan di file PDF.
+// Ini adalah FALLBACK LEGACY — dipakai kalau conference belum dikonfigurasi
+// lewat sistem template baru (certificate-templates/), lihat renderFor().
 const REF_H = 750;
 const TEXT_COLOR = rgb(23 / 255, 54 / 255, 106 / 255);
 
-export type CertificateType = 'Participant' | 'Presenter' | 'Best Paper' | 'Best Presenter';
+export type { CertificateType };
+
+interface ResolvedRecipient {
+  name: string;
+  email: string;
+  firstName: string;
+  conferenceId: string | null;
+  attendanceId: string;
+  writerId: string | null;
+  paperTitle: string | null;
+  paperAcceptedAt: Date | null;
+  conferenceName: string;
+  conferenceDate: Date;
+}
 
 @Injectable()
 export class CertificateService {
@@ -25,6 +44,9 @@ export class CertificateService {
     private prisma: PrismaService,
     private mailer: MailerService,
     private emailTemplate: EmailTemplateService,
+    private templates: CertificateTemplatesService,
+    private renderer: CertificateRendererService,
+    private issued: IssuedCertificatesService,
   ) {}
 
   // Dua tab niru domain Attendance yang sudah ada (Tim/Presenter vs
@@ -83,7 +105,10 @@ export class CertificateService {
     };
   }
 
-  async generatePdf(name: string, roleLabel: CertificateType): Promise<Buffer> {
+  // Fallback lama — satu template PDF hardcoded, dipakai kalau conference
+  // belum dikonfigurasi lewat sistem certificate-templates/ (lihat
+  // renderFor di bawah). TIDAK diubah logic-nya sama sekali.
+  private async generateLegacyPdf(name: string, roleLabel: CertificateType): Promise<Buffer> {
     const templateBytes = readFileSync(TEMPLATE_PATH);
     const fontBytes = readFileSync(FONT_PATH);
     const pdfDoc = await PDFDocument.load(templateBytes);
@@ -108,24 +133,85 @@ export class CertificateService {
     return Buffer.from(bytes);
   }
 
-  private async attendanceRecipient(attendanceId: string) {
+  // Titik tunggal buat semua generate sertifikat (presenter/participant):
+  // resolve template conference ini dulu, kalau nggak ada -> fallback
+  // generator lama (byte-for-byte, conference yang belum disentuh admin
+  // nggak kena efek apa pun).
+  private async renderFor(r: ResolvedRecipient, type: CertificateType): Promise<Buffer> {
+    const certType = CERT_TYPE_KEY[type];
+    const template = await this.templates.resolveTemplate(r.conferenceId, certType);
+    if (!template) return this.generateLegacyPdf(r.name, type);
+
+    let verificationUrl: string | undefined;
+    if (template.qr_enabled) {
+      const eventDate = r.paperAcceptedAt ?? r.conferenceDate;
+      const issuedRow = await this.issued.issue({
+        certType,
+        recipientName: r.name,
+        eventTitle: r.paperTitle ?? r.conferenceName,
+        conferenceName: r.conferenceName,
+        eventDate,
+        eventDateSource: r.paperAcceptedAt ? 'paper_accepted' : 'conference_date',
+        conferenceId: r.conferenceId,
+        attendanceId: r.attendanceId,
+        writerId: r.writerId,
+        templateId: template.id,
+      });
+      verificationUrl = this.issued.buildVerificationUrl(issuedRow.verification_code);
+    }
+
+    return this.renderer.render(template, { recipientName: r.name, certTypeLabel: type, verificationUrl });
+  }
+
+  private async attendanceRecipient(attendanceId: string): Promise<ResolvedRecipient> {
     const attendance = await this.prisma.attendance.findUnique({
       where: { id: attendanceId },
-      include: { paper_writers: true, participant: { include: { users: true } } },
+      include: {
+        paper_writers: { include: { papers: true } },
+        participant: { include: { users: true } },
+        conference: true,
+      },
     });
     if (!attendance) throw new NotFoundException('Data kehadiran tidak ditemukan');
+
+    const conferenceId = attendance.conference_id;
+    const conferenceName = attendance.conference?.conference_name ?? '';
+    const conferenceDate = attendance.conference?.conference_date ?? new Date();
+
     if (attendance.paper_writers) {
-      return { name: `${attendance.paper_writers.first_name} ${attendance.paper_writers.last_name}`, email: attendance.paper_writers.email };
+      return {
+        name: `${attendance.paper_writers.first_name} ${attendance.paper_writers.last_name}`,
+        email: attendance.paper_writers.email,
+        firstName: attendance.paper_writers.first_name,
+        conferenceId,
+        attendanceId,
+        writerId: attendance.paper_writers.writer_id,
+        paperTitle: attendance.paper_writers.papers?.paper_title ?? null,
+        paperAcceptedAt: attendance.paper_writers.papers?.accepted_at ?? null,
+        conferenceName,
+        conferenceDate,
+      };
     }
     if (attendance.participant?.users) {
-      return { name: `${attendance.participant.users.first_name} ${attendance.participant.users.last_name}`, email: attendance.participant.users.email };
+      return {
+        name: `${attendance.participant.users.first_name} ${attendance.participant.users.last_name}`,
+        email: attendance.participant.users.email,
+        firstName: attendance.participant.users.first_name,
+        conferenceId,
+        attendanceId,
+        writerId: null,
+        paperTitle: null,
+        paperAcceptedAt: null,
+        conferenceName,
+        conferenceDate,
+      };
     }
     throw new NotFoundException('Data penerima sertifikat tidak lengkap');
   }
 
   async send(attendanceId: string, type: CertificateType) {
     const recipient = await this.attendanceRecipient(attendanceId);
-    const pdfBytes = await this.generatePdf(recipient.name, type);
+    const pdfBytes = await this.renderFor(recipient, type);
     const { subject, bodyHtml } = await this.emailTemplate.render('certificate', { name: recipient.name, type });
     await this.mailer.sendMail(
       recipient.email,
@@ -155,7 +241,7 @@ export class CertificateService {
 
   async downloadByAttendance(attendanceId: string, type: CertificateType) {
     const recipient = await this.attendanceRecipient(attendanceId);
-    return this.generatePdf(recipient.name, type);
+    return this.renderFor(recipient, type);
   }
 
   async sendAward(conferenceId: string, award: 'best_paper' | 'best_presenter') {
@@ -163,15 +249,28 @@ export class CertificateService {
       where: { conference_id: conferenceId },
       include: {
         papers_conference_best_paperTopapers: { include: { paper_writers: { where: { role: 'presenter' } } } },
-        paper_writers: true,
+        paper_writers: { include: { papers: true } },
       },
     });
     if (!conference) throw new NotFoundException('Conference tidak ditemukan');
 
     if (award === 'best_paper') {
       const presenter = conference.papers_conference_best_paperTopapers?.paper_writers[0];
-      if (!presenter) throw new NotFoundException('Best Paper belum diatur untuk conference ini');
-      const pdfBytes = await this.generatePdf(`${presenter.first_name} ${presenter.last_name}`, 'Best Paper');
+      const bestPaper = conference.papers_conference_best_paperTopapers;
+      if (!presenter || !bestPaper) throw new NotFoundException('Best Paper belum diatur untuk conference ini');
+      const recipient: ResolvedRecipient = {
+        name: `${presenter.first_name} ${presenter.last_name}`,
+        email: presenter.email,
+        firstName: presenter.first_name,
+        conferenceId,
+        attendanceId: '',
+        writerId: presenter.writer_id,
+        paperTitle: bestPaper.paper_title,
+        paperAcceptedAt: bestPaper.accepted_at ?? null,
+        conferenceName: conference.conference_name,
+        conferenceDate: conference.conference_date,
+      };
+      const pdfBytes = await this.renderFor(recipient, 'Best Paper');
       const { subject, bodyHtml } = await this.emailTemplate.render('certificate_award', {
         firstName: presenter.first_name,
         awardLabel: 'Best Paper',
@@ -186,7 +285,19 @@ export class CertificateService {
     } else {
       const writer = conference.paper_writers;
       if (!writer) throw new NotFoundException('Best Presenter belum diatur untuk conference ini');
-      const pdfBytes = await this.generatePdf(`${writer.first_name} ${writer.last_name}`, 'Best Presenter');
+      const recipient: ResolvedRecipient = {
+        name: `${writer.first_name} ${writer.last_name}`,
+        email: writer.email,
+        firstName: writer.first_name,
+        conferenceId,
+        attendanceId: '',
+        writerId: writer.writer_id,
+        paperTitle: writer.papers?.paper_title ?? null,
+        paperAcceptedAt: writer.papers?.accepted_at ?? null,
+        conferenceName: conference.conference_name,
+        conferenceDate: conference.conference_date,
+      };
+      const pdfBytes = await this.renderFor(recipient, 'Best Presenter');
       const { subject, bodyHtml } = await this.emailTemplate.render('certificate_award', {
         firstName: writer.first_name,
         awardLabel: 'Best Presenter',

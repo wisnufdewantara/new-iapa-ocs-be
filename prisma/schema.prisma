@@ -101,6 +101,7 @@ model attendance {
   paper_writers     paper_writers? @relation(fields: [writer_id], references: [writer_id], onDelete: Cascade, onUpdate: NoAction)
   participant       participant?   @relation(fields: [participant_id], references: [attendance_id], onDelete: NoAction, onUpdate: NoAction, map: "fk8e0qxhwb9cqx14glphxbghwmc")
   conference        conference?    @relation(fields: [conference_id], references: [conference_id], onDelete: NoAction, onUpdate: NoAction, map: "fk_attendance_to_conference")
+  issued_certificates issued_certificates[]
 }
 
 /// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
@@ -126,6 +127,8 @@ model conference {
   participant                             participant[]
   schedule                                schedule[]
   sessions                                sessions[]
+  conference_certificate_templates        conference_certificate_templates[]
+  issued_certificates                     issued_certificates[]
 }
 
 model conference_posters {
@@ -222,6 +225,11 @@ model papers {
   paper_title                                 String           @db.VarChar(255)
   submitter_id                                String?          @db.Uuid
   upload_date                                 DateTime?        @default(now()) @db.Timestamp(6)
+  // Diisi SATU tempat: PapersService.updateStatus() saat conference_status
+  // berubah jadi 'Accepted' (null lagi kalau Waiting/Rejected). Dipakai
+  // halaman validasi sertifikat publik sebagai "tanggal lolos paper" —
+  // kalau null (paper lama / disync dari ocs2), fallback ke conference_date.
+  accepted_at                                 DateTime?        @db.Timestamp(6)
   document_url                                String?
   paper_status                                String           @db.VarChar(255)
   conference_status                           String?          @db.VarChar(255)
@@ -378,6 +386,126 @@ model password_reset_tokens {
   used_at    DateTime?
   created_at DateTime  @default(now())
   users      users     @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+}
+
+// Sistem manajemen sertifikat baru (per-template, configurable) —
+// berdampingan sama generator lama yang hardcoded di certificate.service.ts
+// (dipakai sebagai fallback kalau conference belum dikonfigurasi lewat
+// sistem baru ini). Semua posisi/ukuran disimpan sebagai FRAKSI 0..1 dari
+// lebar(x)/tinggi(y) HALAMAN PDF, menandai TITIK TENGAH elemen — generalisasi
+// dari pola REF_H yang sudah ada di certificate.service.ts, dan bikin posisi
+// di editor (persentase dari gambar desain yang dirender) match 1:1 ke posisi
+// render PDF (karena gambar desain = ukuran halaman PDF, aspect ratio sama).
+model certificate_templates {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name             String   @db.VarChar(255)
+  description      String?  @db.VarChar(500)
+  design_image_url String   @db.VarChar(500)
+  design_width_px  Int
+  design_height_px Int
+  // Dipakai kalau conference belum di-mapping eksplisit lewat
+  // conference_certificate_templates — paling banyak SATU baris boleh true,
+  // dijaga di service lewat transaction, bukan DB constraint.
+  is_default       Boolean  @default(false)
+  name_font_key    String   @default("spectral_semibold") @db.VarChar(50)
+  name_font_size   Float    @default(0.0587)
+  name_color       String   @default("#17366A") @db.VarChar(7)
+  name_pos_x       Float    @default(0.5)
+  name_pos_y       Float    @default(0.385)
+  name_max_width   Float    @default(0.8)
+  // Label opsional di bawah nama (mis. "Presenter") — niru roleLabel di
+  // generator lama, tapi posisinya sekarang bisa diatur per-template.
+  label_enabled    Boolean  @default(false)
+  label_font_size  Float    @default(0.04)
+  label_pos_x      Float    @default(0.5)
+  label_pos_y      Float    @default(0.49)
+  // Dipakai buat nama+jabatan penandatangan (fase 2) dan halaman 2 (fase 3).
+  body_font_key    String   @default("cardo_regular") @db.VarChar(50)
+  signer_font_size Float    @default(0.022)
+  signer_color     String   @default("#17366A") @db.VarChar(7)
+  // Halaman kedua: free-text (format baris "- "/"* " = bullet) + total JP.
+  // Isinya SAMA buat semua penerima dalam satu template (keputusan user).
+  page2_enabled    Boolean  @default(false)
+  page2_title      String?  @db.VarChar(255)
+  page2_content    String?
+  page2_total_jp   Int?
+  page2_font_size  Float    @default(0.022)
+  qr_enabled       Boolean  @default(false)
+  qr_pos_x         Float    @default(0.9)
+  qr_pos_y         Float    @default(0.85)
+  qr_size          Float    @default(0.09)
+  created_at       DateTime @default(now()) @db.Timestamp(6)
+  updated_at       DateTime @default(now()) @updatedAt @db.Timestamp(6)
+  conference_certificate_templates conference_certificate_templates[]
+  certificate_template_signers     certificate_template_signers[]
+  issued_certificates              issued_certificates[]
+}
+
+// Pemetaan: template mana dipakai buat tipe sertifikat (participant/
+// presenter/best_paper/best_presenter) di satu conference. Kalau nggak ada
+// baris buat kombinasi tertentu, resolveTemplate() fallback ke template
+// is_default=true, lalu ke generator hardcoded lama kalau itu pun nggak ada.
+model conference_certificate_templates {
+  conference_id String   @db.Uuid
+  cert_type     String   @db.VarChar(30)
+  template_id   String   @db.Uuid
+  updated_at    DateTime @default(now()) @updatedAt @db.Timestamp(6)
+  conference            conference            @relation(fields: [conference_id], references: [conference_id], onDelete: Cascade)
+  certificate_templates certificate_templates @relation(fields: [template_id], references: [id], onDelete: Restrict)
+  @@id([conference_id, cert_type])
+}
+
+// Sampai 3 slot penanda tangan per template. signature_image_url nullable
+// (boleh cuma nama+jabatan tanpa gambar ttd).
+model certificate_template_signers {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  template_id         String   @db.Uuid
+  slot                Int
+  signer_name         String   @db.VarChar(255)
+  signer_title        String?  @db.VarChar(255)
+  signature_image_url String?  @db.VarChar(500)
+  signature_width_px  Int?
+  signature_height_px Int?
+  pos_x               Float    @default(0.5)
+  pos_y               Float    @default(0.78)
+  width               Float    @default(0.15)
+  created_at          DateTime @default(now()) @db.Timestamp(6)
+  updated_at          DateTime @default(now()) @updatedAt @db.Timestamp(6)
+  certificate_templates certificate_templates @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  @@unique([template_id, slot])
+}
+
+// Snapshot SEMPIT tiap sertifikat yang pernah digenerate lewat sistem
+// template baru (dibuat/diupdate idempotent via dedupe_key saat renderFor()
+// dipanggil, BUKAN tiap download) — satu-satunya sumber data buat endpoint
+// publik /api/certificate-validation, SENGAJA nggak pernah join ke
+// users/papers live biar permukaan data yang bisa bocor dibatasi ketat.
+// verification_code kolom terpisah dari id (PK) biar bisa dirotate tanpa
+// ganti FK kalau suatu saat perlu.
+model issued_certificates {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  verification_code String   @unique @db.VarChar(64)
+  // Dedup key: "att:{attendanceId}:{certType}" buat participant/presenter,
+  // "award:{conferenceId}:{certType}:{writerId}" buat award (writerId
+  // penting — kalau best_paper diganti, QR pemenang lama tetap nunjuk ke
+  // data pemenang lama, bukan ketiban data pemenang baru).
+  dedupe_key        String   @unique @db.VarChar(200)
+  cert_type         String   @db.VarChar(30)
+  recipient_name    String   @db.VarChar(255)
+  event_title       String   @db.VarChar(500)
+  conference_name   String   @db.VarChar(255)
+  event_date        DateTime @db.Date
+  event_date_source String   @db.VarChar(30)
+  conference_id     String?  @db.Uuid
+  attendance_id     String?  @db.Uuid
+  writer_id         String?  @db.Uuid
+  template_id       String?  @db.Uuid
+  is_revoked        Boolean  @default(false)
+  issued_at         DateTime @default(now()) @db.Timestamp(6)
+  updated_at        DateTime @default(now()) @updatedAt @db.Timestamp(6)
+  conference            conference?            @relation(fields: [conference_id], references: [conference_id], onDelete: SetNull)
+  attendance            attendance?            @relation(fields: [attendance_id], references: [id], onDelete: SetNull)
+  certificate_templates certificate_templates? @relation(fields: [template_id], references: [id], onDelete: SetNull)
 }
 
 enum conference_status_enum {

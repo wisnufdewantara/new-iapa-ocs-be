@@ -194,6 +194,8 @@ export class PapersService {
     // nyangkut di Accepted/Rejected lama — dua kolom itu jadi nggak
     // konsisten, tepat masalah yang bikin data 33 paper harus dibenerin
     // manual lewat SQL di sistem lama (lihat SESSION_NOTES.md).
+    const prev = await this.prisma.papers.findUnique({ where: { paper_id: paperId }, select: { conference_status: true } });
+
     const updated = await this.prisma.papers.update({
       where: { paper_id: paperId },
       data: {
@@ -208,6 +210,16 @@ export class PapersService {
         // tanpa catatan (misal lewat bulk) nggak nimpa feedback lama jadi
         // undefined/hilang.
         ...(reviewFeedback !== undefined ? { review_feedback: reviewFeedback } : {}),
+        // Dipakai halaman validasi sertifikat publik sebagai "tanggal
+        // lolos paper". Cuma di-set SEKALI saat transisi ke Accepted
+        // (re-accept lewat bulk nggak reset timestamp asli) — Cancel/
+        // Reject balikin ke null lagi.
+        accepted_at:
+          conferenceStatus === 'Accepted'
+            ? prev?.conference_status === 'Accepted'
+              ? undefined
+              : new Date()
+            : null,
       },
     });
     const action = conferenceStatus === 'Waiting' ? 'paper_cancel_decision' : `paper_${conferenceStatus.toLowerCase()}`;

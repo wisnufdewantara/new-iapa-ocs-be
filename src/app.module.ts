@@ -21,6 +21,8 @@ import { ParticipantModule } from './participant/participant.module';
 import { DeveloperModule } from './developer/developer.module';
 import { FunctionalTestModule } from './functional-test/functional-test.module';
 import { EmailTemplateModule } from './email-template/email-template.module';
+import { CertificateTemplatesModule } from './certificate-templates/certificate-templates.module';
+import { CertificateValidationModule } from './certificate-validation/certificate-validation.module';
 
 @Module({
   imports: [
@@ -38,7 +40,9 @@ import { EmailTemplateModule } from './email-template/email-template.module';
     UsersModule,
     RolesModule,
     LoaModule,
+    CertificateTemplatesModule,
     CertificateModule,
+    CertificateValidationModule,
     PaymentModule,
     ParticipantModule,
     DeveloperModule,
