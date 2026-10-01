@@ -439,18 +439,11 @@ model certificate_templates {
   // conference_certificate_templates — paling banyak SATU baris boleh true,
   // dijaga di service lewat transaction, bukan DB constraint.
   is_default       Boolean  @default(false)
-  name_font_key    String   @default("spectral_semibold") @db.VarChar(50)
-  name_font_size   Float    @default(0.0587)
-  name_color       String   @default("#17366A") @db.VarChar(7)
-  name_pos_x       Float    @default(0.5)
-  name_pos_y       Float    @default(0.385)
-  name_max_width   Float    @default(0.8)
-  // Label opsional di bawah nama (mis. "Presenter") — niru roleLabel di
-  // generator lama, tapi posisinya sekarang bisa diatur per-template.
-  label_enabled    Boolean  @default(false)
-  label_font_size  Float    @default(0.04)
-  label_pos_x      Float    @default(0.5)
-  label_pos_y      Float    @default(0.49)
+  // Nama Penerima & Label Tipe BUKAN field khusus lagi — sekarang baris
+  // biasa di certificate_template_placeholders (type='name'/'cert_type'),
+  // bisa diatur posisi/font/dihapus sama kayak placeholder custom
+  // (keputusan user, migrasi data lama ada di migrate_name_label.cjs
+  // yang udah dijalanin manual, lihat SESSION_NOTES.md).
   // Dipakai buat nama+jabatan penandatangan (fase 2) dan halaman 2 (fase 3).
   body_font_key    String   @default("cardo_regular") @db.VarChar(50)
   signer_font_size Float    @default(0.022)
@@ -520,6 +513,13 @@ model certificate_template_placeholders {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   template_id String  @db.Uuid
   slot       Int
+  // 'name' | 'cert_type' | 'custom' — name & cert_type ngerender otomatis
+  // dari data recipient (content-nya diabaikan, diisi string kosong),
+  // custom ngerender dari content (boleh ada {{variabel}}). Ini yang bikin
+  // Nama Penerima & Label Tipe nggak lagi field khusus di certificate_templates
+  // — jadi baris biasa di tabel ini, bisa diatur posisi/font/dihapus sama
+  // kayak placeholder custom.
+  type       String   @default("custom") @db.VarChar(20)
   content    String   @db.VarChar(500)
   font_key   String   @default("cardo_regular") @db.VarChar(50)
   font_size  Float    @default(0.025)

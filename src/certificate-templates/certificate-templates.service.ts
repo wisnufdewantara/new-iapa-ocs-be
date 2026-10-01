@@ -62,6 +62,23 @@ export class CertificateTemplatesService {
         design_height_px: meta.height,
       },
     });
+    // Template baru selalu dikasih 1 placeholder "Nama Penerima" default
+    // (slot 1) — bisa dihapus admin kalau beneran nggak mau, tapi defaultnya
+    // jangan sampai template baru nggak punya nama sama sekali.
+    await this.prisma.certificate_template_placeholders.create({
+      data: {
+        template_id: created.id,
+        slot: 1,
+        type: 'name',
+        content: '',
+        font_key: 'spectral_semibold',
+        font_size: 0.0587,
+        color: '#17366A',
+        pos_x: 0.5,
+        pos_y: 0.385,
+        max_width: 0.8,
+      },
+    });
     await this.auditLog.log(undefined, 'certificate_template_create', 'certificate_templates', created.id);
     return this.findOne(created.id);
   }
@@ -119,7 +136,8 @@ export class CertificateTemplatesService {
             create: {
               template_id: id,
               slot: p.slot,
-              content: p.content,
+              type: p.type,
+              content: p.content ?? '',
               font_key: p.fontKey,
               font_size: p.fontSize,
               color: p.color,
@@ -128,7 +146,8 @@ export class CertificateTemplatesService {
               max_width: p.maxWidth,
             },
             update: {
-              content: p.content,
+              type: p.type,
+              content: p.content ?? '',
               font_key: p.fontKey,
               font_size: p.fontSize,
               color: p.color,
@@ -342,16 +361,6 @@ export class CertificateTemplatesService {
       designWidthPx: t.design_width_px,
       designHeightPx: t.design_height_px,
       isDefault: t.is_default,
-      nameFontKey: t.name_font_key,
-      nameFontSize: t.name_font_size,
-      nameColor: t.name_color,
-      namePosX: t.name_pos_x,
-      namePosY: t.name_pos_y,
-      nameMaxWidth: t.name_max_width,
-      labelEnabled: t.label_enabled,
-      labelFontSize: t.label_font_size,
-      labelPosX: t.label_pos_x,
-      labelPosY: t.label_pos_y,
       bodyFontKey: t.body_font_key,
       signerFontSize: t.signer_font_size,
       signerColor: t.signer_color,
@@ -378,6 +387,7 @@ export class CertificateTemplatesService {
       })),
       placeholders: (t.certificate_template_placeholders ?? []).map((p: any) => ({
         slot: p.slot,
+        type: p.type,
         content: p.content,
         fontKey: p.font_key,
         fontSize: p.font_size,

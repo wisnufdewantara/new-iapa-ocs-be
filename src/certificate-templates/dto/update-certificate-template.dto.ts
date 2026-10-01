@@ -21,9 +21,15 @@ class PlaceholderDto {
   @Max(10)
   slot: number;
 
+  // 'name'/'cert_type' ngerender otomatis dari data recipient (content
+  // diabaikan backend); 'custom' ngerender dari content (boleh {{variabel}}).
+  @IsIn(['name', 'cert_type', 'custom'])
+  type: 'name' | 'cert_type' | 'custom';
+
+  @IsOptional()
   @IsString()
   @MaxLength(500)
-  content: string;
+  content?: string;
 
   @IsIn(FONT_KEYS)
   fontKey: string;
@@ -96,60 +102,6 @@ export class UpdateCertificateTemplateDto {
   @IsString()
   @MaxLength(500)
   description?: string;
-
-  @IsOptional()
-  @IsIn(FONT_KEYS)
-  nameFontKey?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0.01)
-  @Max(0.2)
-  nameFontSize?: number;
-
-  @IsOptional()
-  @Matches(/^#[0-9a-fA-F]{6}$/)
-  nameColor?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(1)
-  namePosX?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(1)
-  namePosY?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0.1)
-  @Max(1)
-  nameMaxWidth?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  labelEnabled?: boolean;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0.01)
-  @Max(0.15)
-  labelFontSize?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(1)
-  labelPosX?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(1)
-  labelPosY?: number;
 
   @IsOptional()
   @IsIn(FONT_KEYS)

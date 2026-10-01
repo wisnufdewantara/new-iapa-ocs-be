@@ -17,16 +17,6 @@ type TemplateWithSigners = {
   design_image_url: string;
   design_width_px: number;
   design_height_px: number;
-  name_font_key: string;
-  name_font_size: number;
-  name_color: string;
-  name_pos_x: number;
-  name_pos_y: number;
-  name_max_width: number;
-  label_enabled: boolean;
-  label_font_size: number;
-  label_pos_x: number;
-  label_pos_y: number;
   body_font_key: string;
   signer_font_size: number;
   signer_color: string;
@@ -52,6 +42,7 @@ type TemplateWithSigners = {
   }[];
   certificate_template_placeholders: {
     slot: number;
+    type: string;
     content: string;
     font_key: string;
     font_size: number;
@@ -132,15 +123,11 @@ export class CertificateRendererService {
     const designImage = ext === '.png' ? await pdfDoc.embedPng(designBytes) : await pdfDoc.embedJpg(designBytes);
     page.drawImage(designImage, { x: 0, y: 0, width: W, height: H });
 
-    const nameFont = await pdfDoc.embedFont(loadFontBytes(template.name_font_key), { subset: false });
     const bodyFont = await pdfDoc.embedFont(loadFontBytes(template.body_font_key), { subset: false });
 
     // Cache per font_key biar placeholder yang pakai font sama nggak
     // embed ulang berkali-kali dalam satu render.
-    const fontCache = new Map<string, PDFFont>([
-      [template.name_font_key, nameFont],
-      [template.body_font_key, bodyFont],
-    ]);
+    const fontCache = new Map<string, PDFFont>([[template.body_font_key, bodyFont]]);
     const embedFontCached = async (fontKey: string) => {
       const cached = fontCache.get(fontKey);
       if (cached) return cached;
@@ -149,36 +136,24 @@ export class CertificateRendererService {
       return embedded;
     };
 
-    // Nama: auto-shrink kalau lebih lebar dari name_max_width.
-    let nameSize = template.name_font_size * H;
-    const maxNameWidth = template.name_max_width * W;
-    const rawWidth = nameFont.widthOfTextAtSize(ctx.recipientName, nameSize);
-    if (rawWidth > maxNameWidth) {
-      nameSize *= maxNameWidth / rawWidth;
-    }
-    this.drawCenteredText(
-      page,
-      nameFont,
-      ctx.recipientName,
-      template.name_pos_x * W,
-      H * (1 - template.name_pos_y),
-      nameSize,
-      hexToRgb(template.name_color),
-    );
-
-    if (template.label_enabled) {
-      this.drawCenteredText(
-        page,
-        bodyFont,
-        ctx.certTypeLabel,
-        template.label_pos_x * W,
-        H * (1 - template.label_pos_y),
-        template.label_font_size * H,
-        hexToRgb(template.name_color),
-      );
+    // Nama Penerima & Label Tipe BUKAN field khusus lagi — sekarang baris
+    // biasa di certificate_template_placeholders (type='name'/'cert_type'),
+    // content-nya diabaikan & diganti data recipient. Single-line +
+    // auto-shrink (beda dari 'custom' yang word-wrap, karena nama/label
+    // biasanya harus muat satu baris).
+    for (const placeholder of template.certificate_template_placeholders) {
+      if (placeholder.type === 'custom') continue;
+      const text = placeholder.type === 'name' ? ctx.recipientName : ctx.certTypeLabel;
+      const font = await embedFontCached(placeholder.font_key);
+      let size = placeholder.font_size * H;
+      const maxWidth = placeholder.max_width * W;
+      const rawWidth = font.widthOfTextAtSize(text, size);
+      if (rawWidth > maxWidth) size *= maxWidth / rawWidth;
+      this.drawCenteredText(page, font, text, placeholder.pos_x * W, H * (1 - placeholder.pos_y), size, hexToRgb(placeholder.color));
     }
 
     for (const placeholder of template.certificate_template_placeholders) {
+      if (placeholder.type !== 'custom') continue;
       const content = interpolatePlaceholder(placeholder.content, ctx.variables ?? {});
       if (!content) continue;
       const font = await embedFontCached(placeholder.font_key);
