@@ -1,58 +1,41 @@
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { PDFDocument, rgb } from 'pdf-lib';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const fontkit = require('@pdf-lib/fontkit');
 
-// Beda dari LoA/Certificate: legacy nggak punya desain template buat
-// invoice, cuma generate polos + email (dicek: InvoiceServiceImpl bikin
-// PDF dari nol, bukan overlay template). Niru itu — bikin dari nol pakai
-// font standar pdf-lib, tanpa aset gambar.
-export async function generateInvoicePdf(params: {
-  invoiceTitle: string;
-  recipientName: string;
-  description: string;
-  amount: number;
-  transferAmount: number;
-  bankName: string;
-  bankHolder: string;
-  bankAccountNumber: string;
-  deadlineText?: string;
-}): Promise<Buffer> {
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595.28, 841.89]); // A4
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+const TEMPLATE_PATH = join(process.cwd(), 'assets', 'templates', 'Invoice.pdf');
+const FONT_PATH = join(process.cwd(), 'assets', 'fonts', 'Inter_18pt-Regular.ttf');
 
-  const rupiah = (n: number) => `Rp${n.toLocaleString('id-ID')}`;
-  let y = 780;
-  const draw = (text: string, opts: { size?: number; bold?: boolean; color?: [number, number, number] } = {}) => {
-    page.drawText(text, {
-      x: 50,
-      y,
-      size: opts.size ?? 12,
-      font: opts.bold ? bold : font,
-      color: opts.color ? rgb(...opts.color) : rgb(0, 0, 0),
-    });
-    y -= (opts.size ?? 12) * 1.6;
-  };
+// Niru persis InvoiceServiceImpl.fillAuthorFeeInvoice di CMS-IAPA-BE (Java
+// lama) — load TEMPLATE PDF asli ("Author Fee Invoice" bermerk IAPA,
+// bukan halaman kosong) terus gambar CUMA nominal fee di atasnya. Bank/
+// tenggat/tanda tangan dkk udah tercetak di desain templatenya sendiri
+// (hasil export Google Docs), jadi nggak digambar ulang di sini — beda
+// dari versi sebelumnya yang bikin PDF polos dari nol dan salah asumsi
+// legacy nggak punya desain (ternyata ADA, cuma kelewat kecek).
+// Koordinat diukur relatif terhadap kerangka desain 1012x674 (sama kayak
+// Java), diskalakan ke ukuran halaman template yang sebenarnya.
+const REF_W = 1012;
+const REF_H = 674;
+const TEXT_COLOR = rgb(0, 0, 0);
 
-  draw('IAPA Conference — Invoice Pembayaran', { size: 18, bold: true });
-  y -= 10;
-  draw(params.invoiceTitle, { size: 13, bold: true });
-  y -= 6;
-  draw(`Kepada: ${params.recipientName}`);
-  draw(params.description);
-  y -= 10;
-  draw(`Nominal: ${rupiah(params.amount)}`);
-  draw(`Jumlah yang harus ditransfer (dengan kode unik): ${rupiah(params.transferAmount)}`, { bold: true, color: [22 / 255, 58 / 255, 125 / 255] });
-  y -= 10;
-  draw('Transfer ke:', { bold: true });
-  draw(`${params.bankName} — ${params.bankHolder}`);
-  draw(`No. Rekening: ${params.bankAccountNumber}`);
-  if (params.deadlineText) {
-    y -= 4;
-    draw(`Tenggat pembayaran: ${params.deadlineText}`, { bold: true, color: [180 / 255, 60 / 255, 30 / 255] });
-  }
-  y -= 10;
-  draw('Mohon transfer jumlah PERSIS sesuai nominal di atas (termasuk kode unik', { size: 10 });
-  draw('3 digit terakhir) untuk memudahkan verifikasi pembayaran.', { size: 10 });
+export async function generateInvoicePdf(params: { amount: number }): Promise<Buffer> {
+  const templateBytes = readFileSync(TEMPLATE_PATH);
+  const fontBytes = readFileSync(FONT_PATH);
+  const pdfDoc = await PDFDocument.load(templateBytes);
+  pdfDoc.registerFontkit(fontkit);
+  const font = await pdfDoc.embedFont(fontBytes, { subset: false });
+  const page = pdfDoc.getPages()[0];
+  const w = page.getWidth();
+  const h = page.getHeight();
+
+  const rupiah = `Rp${params.amount.toLocaleString('id-ID')}`;
+  const fontSize = (14 / REF_H) * h;
+  const valueX = (362 / REF_W) * w;
+  const feeY = h - (243 / REF_H) * h;
+
+  page.drawText(rupiah, { x: valueX, y: feeY, size: fontSize, font, color: TEXT_COLOR });
 
   const bytes = await pdfDoc.save();
   return Buffer.from(bytes);

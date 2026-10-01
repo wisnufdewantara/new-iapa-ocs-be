@@ -471,14 +471,10 @@ export class PaymentService {
     const code = await this.uniqueCodeFor('presenter');
     const transferAmount = applyUniqueCode(amount, code);
     const bank = await this.bankInfo();
-    const pdf = await generateInvoicePdf({
-      invoiceTitle: `Invoice — ${payment.papers?.paper_title ?? ''}`,
-      recipientName: `${payment.users.first_name} ${payment.users.last_name}`,
-      description: 'Biaya presenter/tim untuk paper yang diterima.',
-      amount,
-      transferAmount,
-      ...bank,
-    });
+    // Nominal yang dicetak di PDF = nominal transfer sesungguhnya (udah
+    // termasuk kode unik) — niru persis legacy, bendahara mencocokkan
+    // invoice ke mutasi rekening manual.
+    const pdf = await generateInvoicePdf({ amount: transferAmount });
     const { subject, bodyHtml } = await this.emailTemplate.render('invoice', {
       firstName: payment.users.first_name,
       description: 'untuk paper Anda',
@@ -510,14 +506,7 @@ export class PaymentService {
     const code = await this.uniqueCodeFor('participant');
     const transferAmount = applyUniqueCode(amount, code);
     const bank = await this.bankInfo();
-    const pdf = await generateInvoicePdf({
-      invoiceTitle: 'Invoice — Biaya Peserta',
-      recipientName: `${participant.users.first_name} ${participant.users.last_name}`,
-      description: 'Biaya partisipasi sebagai peserta conference.',
-      amount,
-      transferAmount,
-      ...bank,
-    });
+    const pdf = await generateInvoicePdf({ amount: transferAmount });
     const { subject, bodyHtml } = await this.emailTemplate.render('invoice', {
       firstName: participant.users.first_name,
       description: 'partisipasi Anda',
