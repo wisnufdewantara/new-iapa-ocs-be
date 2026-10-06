@@ -41,6 +41,13 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplateDefault[] = [
     variables: ['firstName', 'description', 'deadlineBlock'],
   },
   {
+    key: 'receipt',
+    label: 'Kwitansi Pembayaran',
+    subject: 'Kwitansi Pembayaran — IAPA Conference',
+    bodyHtml: '<p>Dear {{firstName}},</p><p>Terlampir kwitansi sebagai bukti bahwa pembayaran {{description}} telah kami terima dan verifikasi.</p>',
+    variables: ['firstName', 'description'],
+  },
+  {
     key: 'password_reset',
     label: 'Reset Password',
     subject: 'Reset Password — IAPA OCS',

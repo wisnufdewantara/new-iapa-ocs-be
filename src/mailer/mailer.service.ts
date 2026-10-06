@@ -34,7 +34,7 @@ export class MailerService {
     return `<img src="${src}" alt="" width="1" height="1" style="display:none;max-height:0;max-width:0;opacity:0;overflow:hidden" />`;
   }
 
-  // opts.type = kategori email (loa|invoice|certificate|certificate_award|
+  // opts.type = kategori email (loa|invoice|receipt|certificate|certificate_award|
   // password_reset|test|other) buat difilter di Mail Log Monitoring.
   // opts.relatedId = id domain terkait (paperId/paymentId/dll) buat navigasi.
   async sendMail(

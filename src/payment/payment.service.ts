@@ -7,6 +7,7 @@ import { EmailTemplateService } from '../email-template/email-template.service';
 import { presenterFee } from './pricing.constant';
 import { applyUniqueCode } from './unique-code.util';
 import { generateInvoicePdf } from './invoice-pdf.util';
+import { generateReceiptPdf } from './receipt-pdf.util';
 import { Ocs2SyncService } from './ocs2-sync.service';
 
 @Injectable()
@@ -445,6 +446,15 @@ export class PaymentService {
     if (updated.paper_id) {
       await this.ocs2Sync.pushPaymentStatusByPaperId(updated.paper_id, status, description);
     }
+
+    if (action === 'accept') {
+      try {
+        await this.sendReceiptTeam(paymentId);
+      } catch (err) {
+        console.error('Failed to auto-send receipt for team payment:', err);
+      }
+    }
+
     return updated;
   }
 
@@ -455,6 +465,15 @@ export class PaymentService {
       data: { payment_status: action === 'accept' ? 'verified' : 'rejected', description: action === 'accept' ? null : reason },
     });
     await this.auditLog.log(actorUserId, `payment_participant_${action}`, 'participant', attendanceId, reason);
+
+    if (action === 'accept') {
+      try {
+        await this.sendReceiptParticipant(attendanceId);
+      } catch (err) {
+        console.error('Failed to auto-send receipt for participant payment:', err);
+      }
+    }
+
     return updated;
   }
 
@@ -534,5 +553,190 @@ export class PaymentService {
     });
     await this.auditLog.log(actorUserId, 'update_payment_type', 'payment_types', id, uniqueCode);
     return updated;
+  }
+
+  // Download invoice PDF (admin) setelah pembayaran diverifikasi atau
+  // invoice udah pernah dikirim. Reuse generateInvoicePdf() (sama persis
+  // dipakai sendInvoiceTeam) — JANGAN re-implement generate PDF-nya di sini
+  // lagi, dan JANGAN lupa applyUniqueCode kayak di semua alur invoice lain,
+  // biar nominal yang didownload admin match persis sama yang diinvoice ke
+  // presenter (penting buat rekonsiliasi mutasi rekening).
+  async downloadInvoice(paymentId: string, res: any) {
+    const payment = await this.prisma.payments.findUnique({ where: { payment_id: paymentId } });
+    if (!payment) throw new NotFoundException('Payment tidak ditemukan');
+
+    if (payment.payment_status !== 'verified' && !payment.sent_invoice) {
+      throw new BadRequestException('Invoice tidak bisa didownload: pembayaran belum diverifikasi atau invoice belum pernah dikirim');
+    }
+
+    const amount = payment.total_amount != null ? Number(payment.total_amount) : 0;
+    const code = await this.uniqueCodeFor('presenter');
+    const transferAmount = applyUniqueCode(amount, code);
+    const pdfBuffer = await generateInvoicePdf({ amount: transferAmount });
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="Invoice-${paymentId}.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.send(pdfBuffer);
+  }
+
+  // Self-service: download invoice sendiri (team presenter atau participant)
+  // Tersedia setelah sent_invoice = true atau payment_status = 'verified'
+  async downloadMyInvoice(userId: string, res: any) {
+    // Cari payment tim (jika presenter) dulu
+    const paper = await this.prisma.papers.findFirst({
+      where: { submitter_id: userId },
+      include: { payments: true },
+      orderBy: { upload_date: 'desc' },
+    });
+    if (paper && paper.payments.length > 0) {
+      const payment = paper.payments[0];
+      if (!payment.sent_invoice && payment.payment_status !== 'verified') {
+        throw new BadRequestException('Invoice belum tersedia. Tunggu konfirmasi dari admin.');
+      }
+      const amount = payment.total_amount != null ? Number(payment.total_amount) : 0;
+      const code = await this.uniqueCodeFor('presenter');
+      const transferAmount = applyUniqueCode(amount, code);
+      const pdfBuffer = await generateInvoicePdf({ amount: transferAmount });
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="Invoice-presenter.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+      return res.send(pdfBuffer);
+    }
+
+    // Fallback ke participant biasa
+    const participant = await this.prisma.participant.findUnique({ where: { attendance_id: userId } });
+    if (!participant) throw new NotFoundException('Data pembayaran tidak ditemukan.');
+    if (!participant.sent_invoice && participant.payment_status !== 'verified') {
+      throw new BadRequestException('Invoice belum tersedia. Tunggu konfirmasi dari admin.');
+    }
+    const amount = participant.total_amount != null ? Number(participant.total_amount) : 0;
+    const code = await this.uniqueCodeFor('participant');
+    const transferAmount = applyUniqueCode(amount, code);
+    const pdfBuffer = await generateInvoicePdf({ amount: transferAmount });
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="Invoice-peserta.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.send(pdfBuffer);
+  }
+
+  // Self-service: download kuitansi pembayaran (hanya setelah status 'verified')
+  async downloadMyReceipt(userId: string, res: any) {
+    const user = await this.prisma.users.findUnique({ where: { user_id: userId }, select: { first_name: true, last_name: true } });
+    const userName = user ? `${user.first_name} ${user.last_name}` : 'Participant';
+
+    const paper = await this.prisma.papers.findFirst({
+      where: { submitter_id: userId },
+      include: { payments: true },
+      orderBy: { upload_date: 'desc' },
+    });
+    if (paper && paper.payments.length > 0) {
+      const payment = paper.payments[0];
+      if (payment.payment_status !== 'verified') {
+        throw new BadRequestException('Kuitansi hanya tersedia setelah pembayaran diverifikasi.');
+      }
+      const amount = payment.total_amount != null ? Number(payment.total_amount) : 0;
+      const pdfBuffer = await generateReceiptPdf({
+        recipientName: userName,
+        amount,
+        description: `Presenter fee — ${paper.paper_title}`,
+        receiptNumber: `RCP-${payment.payment_id.substring(0, 8).toUpperCase()}`,
+      });
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="Kuitansi-presenter.pdf"`,
+        'Content-Length': pdfBuffer.length,
+      });
+      return res.send(pdfBuffer);
+    }
+
+    const participant = await this.prisma.participant.findUnique({ where: { attendance_id: userId } });
+    if (!participant) throw new NotFoundException('Data pembayaran tidak ditemukan.');
+    if (participant.payment_status !== 'verified') {
+      throw new BadRequestException('Kuitansi hanya tersedia setelah pembayaran diverifikasi.');
+    }
+    const amount = participant.total_amount != null ? Number(participant.total_amount) : 0;
+    const pdfBuffer = await generateReceiptPdf({
+      recipientName: userName,
+      amount,
+      description: 'Conference participation fee',
+      receiptNumber: `RCP-${participant.attendance_id.substring(0, 8).toUpperCase()}`,
+    });
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="Kuitansi-peserta.pdf"`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.send(pdfBuffer);
+  }
+
+  // Admin: kirim kuitansi ke peserta team (setelah verified)
+  async sendReceiptTeam(paymentId: string) {
+    const payment = await this.prisma.payments.findUnique({
+      where: { payment_id: paymentId },
+      include: { papers: true, users: true },
+    });
+    if (!payment) throw new NotFoundException('Payment tidak ditemukan');
+    if (payment.payment_status !== 'verified') {
+      throw new BadRequestException('Kuitansi hanya bisa dikirim setelah pembayaran diverifikasi.');
+    }
+    const amount = payment.total_amount != null ? Number(payment.total_amount) : 0;
+    const userName = `${payment.users.first_name} ${payment.users.last_name}`;
+    const pdfBuffer = await generateReceiptPdf({
+      recipientName: userName,
+      amount,
+      description: `Presenter fee — ${payment.papers?.paper_title ?? ''}`,
+      receiptNumber: `RCP-${payment.payment_id.substring(0, 8).toUpperCase()}`,
+    });
+    const { subject, bodyHtml } = await this.emailTemplate.render('receipt', {
+      firstName: payment.users.first_name,
+      description: `untuk paper "${payment.papers?.paper_title ?? ''}"`,
+    });
+    await this.mailer.sendMail(
+      payment.users.email,
+      subject,
+      bodyHtml,
+      [{ filename: `Kwitansi-${paymentId}.pdf`, content: pdfBuffer }],
+      { type: 'receipt', relatedId: paymentId },
+    );
+    return { sent: true };
+  }
+
+  // Admin: kirim kuitansi ke participant biasa (setelah verified)
+  async sendReceiptParticipant(attendanceId: string) {
+    const participant = await this.prisma.participant.findUnique({
+      where: { attendance_id: attendanceId },
+      include: { users: true },
+    });
+    if (!participant) throw new NotFoundException('Peserta tidak ditemukan');
+    if (participant.payment_status !== 'verified') {
+      throw new BadRequestException('Kuitansi hanya bisa dikirim setelah pembayaran diverifikasi.');
+    }
+    const amount = participant.total_amount != null ? Number(participant.total_amount) : 0;
+    const userName = `${participant.users.first_name} ${participant.users.last_name}`;
+    const pdfBuffer = await generateReceiptPdf({
+      recipientName: userName,
+      amount,
+      description: 'Conference participation fee',
+      receiptNumber: `RCP-${attendanceId.substring(0, 8).toUpperCase()}`,
+    });
+    const { subject, bodyHtml } = await this.emailTemplate.render('receipt', {
+      firstName: participant.users.first_name,
+      description: 'partisipasi Anda sebagai peserta conference',
+    });
+    await this.mailer.sendMail(
+      participant.users.email,
+      subject,
+      bodyHtml,
+      [{ filename: `Kwitansi-${attendanceId}.pdf`, content: pdfBuffer }],
+      { type: 'receipt', relatedId: attendanceId },
+    );
+    return { sent: true };
   }
 }

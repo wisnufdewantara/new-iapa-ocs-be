@@ -13,9 +13,10 @@ export const PERMISSION_CATALOG: Record<string, string[]> = {
   loa: ['manage'],
   certificate: ['manage', 'manage_awards', 'manage_templates'],
   admin_gate: ['verify'],
-  payment: ['submit', 'verify', 'manage_types'],
+  payment: ['submit', 'verify', 'manage_types', 'manage_invoices'],
   participant: ['join'],
   developer: ['view'],
+  report: ['download'],
 };
 
 function allPermissions(): { module: string; action: string }[] {
@@ -41,6 +42,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, { module: string; action: 
     { module: 'certificate', action: 'manage' },
     { module: 'certificate', action: 'manage_awards' },
     { module: 'certificate', action: 'manage_templates' },
+    { module: 'report', action: 'download' },
   ],
   Reviewer: [{ module: 'papers', action: 'review' }],
   Peserta: [
@@ -56,5 +58,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, { module: string; action: 
     { module: 'settings', action: 'manage' },
     { module: 'payment', action: 'verify' },
     { module: 'payment', action: 'manage_types' },
+    { module: 'payment', action: 'manage_invoices' },
+    { module: 'report', action: 'download' },
   ],
 };

@@ -61,6 +61,18 @@ export class LoaService {
     private emailTemplate: EmailTemplateService,
   ) {}
 
+  // Self-service: cari paper milik userId yang sudah Accepted
+  // (dipakai untuk endpoint GET /api/loa/mine/download)
+  async findMyAcceptedPaper(userId: string): Promise<{ paperId: string; paperTitle: string } | null> {
+    const paper = await this.prisma.papers.findFirst({
+      where: { submitter_id: userId, conference_status: 'Accepted' },
+      orderBy: { upload_date: 'desc' },
+      select: { paper_id: true, paper_title: true },
+    });
+    if (!paper) return null;
+    return { paperId: paper.paper_id, paperTitle: paper.paper_title };
+  }
+
   findByConference(conferenceId: string) {
     return this.prisma.papers
       .findMany({

@@ -1,7 +1,8 @@
 node_modules
 dist
 # Keep environment variables out of version control
-.env
+.env*
+!.env.example
 
 /generated/prisma
 # Catatan/scratchpad markdown pribadi — standar di semua project di laptop ini
@@ -16,3 +17,4 @@ scripts/.sync.lock
 
 # Claude Code — konfigurasi personal, nggak di-share lewat git
 .claude/
+*.tsbuildinfo

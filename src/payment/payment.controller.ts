@@ -8,6 +8,7 @@ import {
   Put,
   Query,
   Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -64,6 +65,20 @@ export class PaymentController {
       senderName,
       transferDate,
     );
+  }
+
+  // Self-service: download invoice (setelah invoice dikirim atau pembayaran verified)
+  @Get('mine/invoice')
+  @RequirePermission('payment', 'submit')
+  downloadMyInvoice(@Req() req: any, @Res() res: any) {
+    return this.paymentService.downloadMyInvoice((req.user as { userId: string }).userId, res);
+  }
+
+  // Self-service: download kuitansi/receipt (hanya setelah pembayaran verified)
+  @Get('mine/receipt')
+  @RequirePermission('payment', 'submit')
+  downloadMyReceipt(@Req() req: any, @Res() res: any) {
+    return this.paymentService.downloadMyReceipt((req.user as { userId: string }).userId, res);
   }
 
   @Get()
@@ -125,6 +140,26 @@ export class PaymentController {
   @RequirePermission('payment', 'verify')
   sendInvoiceParticipant(@Param('attendanceId', ParseUUIDPipe) attendanceId: string) {
     return this.paymentService.sendInvoiceParticipant(attendanceId);
+  }
+
+  // Kirim kwitansi (setelah verified) — admin action
+  @Post(':paymentId/send-receipt')
+  @RequirePermission('payment', 'verify')
+  sendReceiptTeam(@Param('paymentId', ParseUUIDPipe) paymentId: string) {
+    return this.paymentService.sendReceiptTeam(paymentId);
+  }
+
+  @Post('participant/:attendanceId/send-receipt')
+  @RequirePermission('payment', 'verify')
+  sendReceiptParticipant(@Param('attendanceId', ParseUUIDPipe) attendanceId: string) {
+    return this.paymentService.sendReceiptParticipant(attendanceId);
+  }
+
+  // Download invoice PDF after payment is verified
+  @Get(':paymentId/download')
+  @RequirePermission('payment', 'manage_invoices')
+  downloadInvoice(@Param('paymentId', ParseUUIDPipe) paymentId: string, @Res() res: any) {
+    return this.paymentService.downloadInvoice(paymentId, res);
   }
 }
 

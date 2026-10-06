@@ -24,6 +24,7 @@ import { EmailTemplateModule } from './email-template/email-template.module';
 import { EmailLogModule } from './email-log/email-log.module';
 import { CertificateTemplatesModule } from './certificate-templates/certificate-templates.module';
 import { CertificateValidationModule } from './certificate-validation/certificate-validation.module';
+import { ReportModule } from './report/report.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { CertificateValidationModule } from './certificate-validation/certificat
     FunctionalTestModule,
     EmailTemplateModule,
     EmailLogModule,
+    ReportModule,
   ],
 })
 export class AppModule {}
