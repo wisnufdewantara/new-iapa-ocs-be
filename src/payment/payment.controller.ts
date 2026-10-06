@@ -24,6 +24,7 @@ import { UpdateWritersDto } from './dto/update-writers.dto';
 import { OverrideParticipantDto } from './dto/override-participant.dto';
 import { UpdatePaymentTypeDto } from './dto/update-payment-type.dto';
 import { paymentProofUploadOptions } from './payment-upload.config';
+import { assertValidProofFile } from './payment-proof-file.util';
 import { ProofPullSyncService } from './proof-pull-sync.service';
 
 @Controller('api/payment')
@@ -52,13 +53,17 @@ export class PaymentController {
   @Post('mine/proof')
   @RequirePermission('payment', 'submit')
   @UseInterceptors(FileInterceptor('proof', paymentProofUploadOptions))
-  uploadProof(
+  async uploadProof(
     @Req() req: any,
     @UploadedFile() file: Express.Multer.File,
     @Body('paymentId') paymentId?: string,
     @Body('senderName') senderName?: string,
     @Body('transferDate') transferDate?: string,
   ) {
+    // file.mimetype cuma klaim client — decode beneran byte-nya di sini
+    // sebelum proofUrl-nya dipercaya/disimpan, biar nggak ada file yang
+    // kontennya beda dari ekstensi yang udah dibatasi upload config.
+    await assertValidProofFile(file.path, file.mimetype);
     const proofUrl = `/api/uploads/payment-proofs/${file.filename}`;
     return this.paymentService.uploadProof(
       (req.user as { userId: string }).userId,

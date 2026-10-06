@@ -197,13 +197,21 @@ export class PaymentService {
       await this.auditLog.log(actorUserId, 'payment_delete_writers', 'payments', paymentId, JSON.stringify(deleteWriterIds));
     }
 
+    // Discolosed IDOR fix: scope ke paper_id SAMA kayak branch delete di
+    // atas — tanpa ini, writer_id dari paper LAIN yang kebetulan diketahui
+    // (mis. lewat GET detail paper lain) bisa ikut ke-update lewat request
+    // yang nominalnya buat paymentId ini.
     const existing = await this.prisma.paper_writers.findMany({
-      where: { writer_id: { in: writers.map((w) => w.writerId) } },
+      where: { writer_id: { in: writers.map((w) => w.writerId) }, paper_id: paperId },
       select: { writer_id: true, manual_fee: true },
     });
+    const validWriterIds = new Set(existing.map((e) => e.writer_id));
     const alreadyLocked = new Set(existing.filter((e) => e.manual_fee != null).map((e) => e.writer_id));
 
     for (const w of writers) {
+      if (!validWriterIds.has(w.writerId)) {
+        throw new ForbiddenException(`Writer ${w.writerId} bukan bagian dari paper ini`);
+      }
       const data: {
         role: string;
         member_status: boolean;
@@ -436,10 +444,23 @@ export class PaymentService {
     if (action === 'reject' && !reason) throw new BadRequestException('Alasan reject wajib diisi');
     const status = action === 'accept' ? 'verified' : 'rejected';
     const description = action === 'accept' ? null : reason;
-    const updated = await this.prisma.payments.update({
-      where: { payment_id: paymentId },
+    // Race-condition fix: updateMany dengan where payment_status != target
+    // atomic di level DB — double-click/retry jaringan yang bikin 2
+    // request 'accept' nyaris bersamaan cuma SATU yang lolos (count>0),
+    // yang kedua ketahuan lewat count===0 dan DITOLAK sebelum sempat
+    // ngirim kwitansi duplikat. Transisi sebaliknya (verified->reject buat
+    // koreksi kesalahan) tetap diizinkan — yang diblokir cuma re-trigger
+    // aksi yang SAMA ke status yang SAMA.
+    const { count } = await this.prisma.payments.updateMany({
+      where: { payment_id: paymentId, payment_status: { not: status } },
       data: { payment_status: status, description },
     });
+    if (count === 0) {
+      throw new BadRequestException(
+        action === 'accept' ? 'Pembayaran ini sudah diverifikasi.' : 'Pembayaran ini sudah ditolak.',
+      );
+    }
+    const updated = await this.prisma.payments.findUniqueOrThrow({ where: { payment_id: paymentId } });
     await this.auditLog.log(actorUserId, `payment_${action}`, 'payments', paymentId, reason);
     // Peserta masih cek status bayar di ocs2.iapa.or.id — wajib ikut
     // ke-sync biar gak keliatan "belum diverifikasi" padahal udah.
@@ -460,10 +481,18 @@ export class PaymentService {
 
   async verifyParticipant(attendanceId: string, action: 'accept' | 'reject', reason: string | undefined, actorUserId?: string) {
     if (action === 'reject' && !reason) throw new BadRequestException('Alasan reject wajib diisi');
-    const updated = await this.prisma.participant.update({
-      where: { attendance_id: attendanceId },
-      data: { payment_status: action === 'accept' ? 'verified' : 'rejected', description: action === 'accept' ? null : reason },
+    const status = action === 'accept' ? 'verified' : 'rejected';
+    // Race-condition fix — sama kayak verifyTeam() di atas.
+    const { count } = await this.prisma.participant.updateMany({
+      where: { attendance_id: attendanceId, payment_status: { not: status } },
+      data: { payment_status: status, description: action === 'accept' ? null : reason },
     });
+    if (count === 0) {
+      throw new BadRequestException(
+        action === 'accept' ? 'Pembayaran ini sudah diverifikasi.' : 'Pembayaran ini sudah ditolak.',
+      );
+    }
+    const updated = await this.prisma.participant.findUniqueOrThrow({ where: { attendance_id: attendanceId } });
     await this.auditLog.log(actorUserId, `payment_participant_${action}`, 'participant', attendanceId, reason);
 
     if (action === 'accept') {
@@ -512,6 +541,20 @@ export class PaymentService {
   async overrideParticipant(attendanceId: string, isMember: boolean, totalAmount: number, actorUserId?: string) {
     const existing = await this.prisma.participant.findUnique({ where: { attendance_id: attendanceId } });
     if (!existing) throw new NotFoundException('Peserta tidak ditemukan');
+
+    // Financial-integrity fix: nominal yang sudah "verified" (sudah
+    // dikirim kwitansi resmi ke peserta) jangan bisa diubah diam-diam —
+    // itu bikin kwitansi yang udah dikirim beda dari nominal yang
+    // tersimpan sekarang, nggak ada jejak nominal asli yang pernah
+    // diverifikasi. Admin harus reject dulu (lewat verify endpoint) buat
+    // "buka kunci"-nya, baru override, baru verify ulang (otomatis kirim
+    // kwitansi baru dengan nominal yang benar) — jejaknya kelihatan di
+    // audit log sebagai 2 aksi terpisah, bukan 1 override senyap.
+    if (existing.payment_status === 'verified') {
+      throw new BadRequestException(
+        'Pembayaran ini sudah verified. Reject dulu lewat tombol verifikasi sebelum override nominal, baru verify ulang setelah override.',
+      );
+    }
 
     const updated = await this.prisma.participant.update({
       where: { attendance_id: attendanceId },
