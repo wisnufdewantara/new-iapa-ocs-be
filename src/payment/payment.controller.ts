@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -20,6 +21,7 @@ import { RequirePermission } from '../common/permissions.decorator';
 import { PaymentService } from './payment.service';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import { UpdateWritersDto } from './dto/update-writers.dto';
+import { OverrideParticipantDto } from './dto/override-participant.dto';
 import { UpdatePaymentTypeDto } from './dto/update-payment-type.dto';
 import { paymentProofUploadOptions } from './payment-upload.config';
 import { ProofPullSyncService } from './proof-pull-sync.service';
@@ -126,6 +128,27 @@ export class PaymentController {
       attendanceId,
       dto.action,
       dto.reason,
+      (req.user as { userId: string }).userId,
+    );
+  }
+
+  @Get('participant/:attendanceId/detail')
+  @RequirePermission('payment', 'verify')
+  participantDetail(@Param('attendanceId', ParseUUIDPipe) attendanceId: string) {
+    return this.paymentService.participantDetail(attendanceId);
+  }
+
+  @Patch('participant/:attendanceId/override')
+  @RequirePermission('payment', 'verify')
+  overrideParticipant(
+    @Param('attendanceId', ParseUUIDPipe) attendanceId: string,
+    @Body() dto: OverrideParticipantDto,
+    @Req() req: any,
+  ) {
+    return this.paymentService.overrideParticipant(
+      attendanceId,
+      dto.isMember,
+      dto.totalAmount,
       (req.user as { userId: string }).userId,
     );
   }

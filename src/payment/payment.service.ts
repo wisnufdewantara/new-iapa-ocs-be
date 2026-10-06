@@ -477,6 +477,56 @@ export class PaymentService {
     return updated;
   }
 
+  // Detail peserta buat admin — mirror paperDetail() tapi jauh lebih
+  // simpel: participant cuma 1 baris per orang (bukan tim banyak writer),
+  // jadi nggak ada breakdown fee per-writer, cuma 1 nominal.
+  async participantDetail(attendanceId: string) {
+    const participant = await this.prisma.participant.findUnique({
+      where: { attendance_id: attendanceId },
+      include: { users: true, conference: true },
+    });
+    if (!participant) throw new NotFoundException('Peserta tidak ditemukan');
+
+    return {
+      attendanceId: participant.attendance_id,
+      name: `${participant.users.first_name} ${participant.users.last_name}`,
+      email: participant.users.email,
+      conferenceName: participant.conference?.conference_name ?? '',
+      isMember: participant.is_member,
+      totalAmount: participant.total_amount != null ? Number(participant.total_amount) : null,
+      paymentStatus: participant.payment_status,
+      sentInvoice: participant.sent_invoice,
+      proofUrl: participant.link_payment_upload,
+      senderName: participant.payment_sender_name,
+      transferDate: participant.payment_transfer_date,
+    };
+  }
+
+  // Override manual nominal+membership peserta — sebelumnya total_amount
+  // cuma keisi sekali lewat trigger DB pas join (lihat ParticipantService),
+  // admin nggak punya cara ubah lagi kalau salah/mau dikecualikan dari
+  // aturan member/non-member standar. Beda dari manual_fee writer (sekali
+  // kunci gak bisa diubah lagi) — di sini boleh direvisi berkali-kali
+  // karena cuma 1 orang per baris, bukan daftar banyak penulis yang
+  // riskan konflik kalau gampang diubah-ubah.
+  async overrideParticipant(attendanceId: string, isMember: boolean, totalAmount: number, actorUserId?: string) {
+    const existing = await this.prisma.participant.findUnique({ where: { attendance_id: attendanceId } });
+    if (!existing) throw new NotFoundException('Peserta tidak ditemukan');
+
+    const updated = await this.prisma.participant.update({
+      where: { attendance_id: attendanceId },
+      data: { is_member: isMember, total_amount: BigInt(Math.round(totalAmount)) },
+    });
+    await this.auditLog.log(
+      actorUserId,
+      'payment_participant_override',
+      'participant',
+      attendanceId,
+      `isMember=${isMember}, totalAmount=${totalAmount}`,
+    );
+    return { ...updated, total_amount: Number(updated.total_amount) };
+  }
+
   async sendInvoiceTeam(paymentId: string) {
     const payment = await this.prisma.payments.findUnique({
       where: { payment_id: paymentId },
