@@ -7,11 +7,21 @@ import { PrismaService } from '../prisma/prisma.service';
 // bukti transfer lewat ocs2.iapa.or.id (bukan newocs), dan ocs2 (Java)
 // nggak punya jalur push keluar sama sekali — satu-satunya cara newocs
 // tau ada bukti baru adalah POLLING Supabase REST API secara berkala.
+// Connect via REST (HTTPS) BUKAN raw Postgres — port Postgres pooler-nya
+// diblokir dari jaringan Dewaweb, tapi HTTPS ke Supabase REST nggak.
 //
 // Ditemukan manual 2026-09-23: 5 bukti transfer yang diupload peserta
 // lewat ocs2 nyangkut nggak kelihatan sama sekali di newocs selama
 // beberapa hari (admin yang cek dashboard newocs doang bakal ngira
 // peserta itu belum bayar, padahal udah).
+//
+// Ditemukan manual 2026-10-07: pull di atas CUMA nutup proof TIM/presenter
+// (tabel payment_proofs, terpisah dari payments). Proof PESERTA disimpen
+// LANGSUNG di kolom participant.link_payment_upload sendiri (bukan tabel
+// proof terpisah) — nggak pernah ikut ke-pull sama sekali sampai sekarang,
+// cuma nyangkut sampai ada yang jalanin sync-from-supabase.mjs manual dari
+// laptop. Ditambahin pull participant di bawah biar konsisten sama proof
+// tim (otomatis tiap 15 menit, nggak perlu intervensi manual lagi).
 @Injectable()
 export class ProofPullSyncService {
   private readonly logger = new Logger(ProofPullSyncService.name);
@@ -23,12 +33,12 @@ export class ProofPullSyncService {
     await this.runPull();
   }
 
-  async runPull(): Promise<{ pulled: number; statusUpdated: number }> {
+  async runPull(): Promise<{ pulled: number; statusUpdated: number; participantsPulled: number }> {
     const url = process.env.SUPABASE_URL;
     const secretKey = process.env.SUPABASE_SECRET_KEY;
     if (!url || !secretKey) {
       this.logger.warn('SUPABASE_URL/SUPABASE_SECRET_KEY belum diisi — proof pull sync di-skip.');
-      return { pulled: 0, statusUpdated: 0 };
+      return { pulled: 0, statusUpdated: 0, participantsPulled: 0 };
     }
 
     const headers = {
@@ -44,7 +54,7 @@ export class ProofPullSyncService {
       ]);
       if (!proofsRes.ok || !paymentsRes.ok) {
         this.logger.warn(`Gagal fetch dari Supabase: proofs=HTTP ${proofsRes.status} payments=HTTP ${paymentsRes.status}`);
-        return { pulled: 0, statusUpdated: 0 };
+        return { pulled: 0, statusUpdated: 0, participantsPulled: 0 };
       }
       const supaProofs = (await proofsRes.json()) as {
         proof_id: string;
@@ -103,13 +113,59 @@ export class ProofPullSyncService {
         statusUpdated += res.count;
       }
 
-      if (pulled > 0) {
-        this.logger.log(`Proof pull sync: ${pulled} bukti transfer baru ditarik dari ocs2, ${statusUpdated} status payment diupdate.`);
+      // Proof peserta — beda struktur dari proof tim: nempel LANGSUNG di
+      // kolom participant sendiri (link_payment_upload dkk), bukan tabel
+      // proof terpisah. attendance_id = user_id, SAMA persis di kedua
+      // sistem (users udah ke-sync lebih dulu), jadi tinggal match 1:1.
+      let participantsPulled = 0;
+      const participantsRes = await fetch(
+        `${url}/rest/v1/participant?select=attendance_id,link_payment_upload,payment_sender_name,payment_transfer_date,payment_status&limit=5000`,
+        { headers },
+      );
+      if (!participantsRes.ok) {
+        this.logger.warn(`Gagal fetch participant dari Supabase: HTTP ${participantsRes.status}`);
+      } else {
+        const supaParticipants = (await participantsRes.json()) as {
+          attendance_id: string;
+          link_payment_upload: string | null;
+          payment_sender_name: string | null;
+          payment_transfer_date: string | null;
+          payment_status: string | null;
+        }[];
+
+        for (const sp of supaParticipants) {
+          if (!sp.link_payment_upload) continue;
+          const local = await this.prisma.participant.findUnique({ where: { attendance_id: sp.attendance_id } });
+          if (!local) continue;
+          // URL proof lokal udah sama (bukan upload baru) ATAU status
+          // lokal udah lebih maju dari "waiting for payment" (verified/
+          // rejected/waiting for verification) — JANGAN ditimpa balik,
+          // pola sama kayak proof tim di atas.
+          if (local.link_payment_upload === sp.link_payment_upload) continue;
+          if (local.payment_status != null && local.payment_status !== 'waiting for payment') continue;
+
+          await this.prisma.participant.update({
+            where: { attendance_id: sp.attendance_id },
+            data: {
+              link_payment_upload: sp.link_payment_upload,
+              payment_sender_name: sp.payment_sender_name,
+              payment_transfer_date: sp.payment_transfer_date,
+              payment_status: 'waiting for verification',
+            },
+          });
+          participantsPulled++;
+        }
       }
-      return { pulled, statusUpdated };
+
+      if (pulled > 0 || participantsPulled > 0) {
+        this.logger.log(
+          `Proof pull sync: ${pulled} bukti tim baru, ${participantsPulled} bukti peserta baru, ${statusUpdated} status payment tim diupdate.`,
+        );
+      }
+      return { pulled, statusUpdated, participantsPulled };
     } catch (err: any) {
       this.logger.error(`Proof pull sync gagal: ${err.message}`);
-      return { pulled: 0, statusUpdated: 0 };
+      return { pulled: 0, statusUpdated: 0, participantsPulled: 0 };
     }
   }
 }
