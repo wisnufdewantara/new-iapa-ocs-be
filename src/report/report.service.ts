@@ -1,41 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-/**
- * Escape a CSV cell: wrap in quotes & escape internal quotes, dan netralkan
- * CSV/formula injection (CWE-1236) — paper_title/keywords/nama penulis dkk
- * itu free-text yang diisi presenter (untrusted), tapi file CSV-nya dibuka
- * admin di Excel/Sheets. Cell yang diawali =/+/-/@/tab/CR ditafsirkan Excel
- * sebagai formula (mis. =HYPERLINK(...) buat phishing/exfiltrasi data), jadi
- * diprefix tanda kutip tunggal biar dipaksa jadi teks biasa.
- */
-function csvCell(val: unknown): string {
-  if (val == null) return '';
-  let str = String(val);
-  if (/^[=+\-@\t\r]/.test(str)) {
-    str = `'${str}`;
-  }
-  // Escape double quotes and wrap if necessary
-  if (str.includes('"') || str.includes(',') || str.includes('\n')) {
-    return '"' + str.replace(/"/g, '""') + '"';
-  }
-  return str;
-}
-
-function csvRow(cells: unknown[]): string {
-  return cells.map(csvCell).join(',');
-}
-
 function formatRupiah(n: bigint | number | null | undefined): string {
   if (n == null) return '';
   return Number(n).toLocaleString('id-ID');
 }
 
+// Service ini CUMA ngambil data & bentuk jadi baris object (keyed by
+// kolom key di report-columns.constant.ts) — nggak lagi langsung bentuk
+// CSV string di sini. Filtering kolom + format file (CSV/XLSX) ditangani
+// di controller lewat report-file.util.ts, biar satu sumber data bisa
+// dipakai buat kedua format tanpa duplikasi query.
 @Injectable()
 export class ReportService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async exportPapersCsv(conferenceId?: string): Promise<string> {
+  async getPapersRows(conferenceId?: string): Promise<Record<string, unknown>[]> {
     const papers = await this.prisma.papers.findMany({
       where: conferenceId ? { conference_id: conferenceId } : {},
       select: {
@@ -74,58 +54,36 @@ export class ReportService {
       orderBy: { paper_id: 'asc' },
     });
 
-    const headers = [
-      'Paper ID',
-      'Judul Paper',
-      'Conference',
-      'Status Paper',
-      'Status Conference',
-      'Tipe',
-      'Sub Tema',
-      'Keywords',
-      'Submitter',
-      'Email Submitter',
-      'Penulis (semua)',
-      'Email Penulis',
-      'Status Pembayaran',
-      'Total Pembayaran (Rp)',
-      'Sudah Kirim LoA',
-    ];
-
-    const rows = papers.map((p) => {
+    return papers.map((p) => {
       // Nama/email penulis disimpan LANGSUNG di kolom paper_writers sendiri
       // (bukan via relasi .users — itu FK opsional yang hampir selalu null,
       // writer biasanya nggak punya akun users terkait).
       const writers = p.paper_writers.map((pw) => `${pw.first_name} ${pw.last_name}`.trim());
       const writerEmails = p.paper_writers.map((pw) => pw.email);
       const payment = p.payments?.[0];
-      return csvRow([
-        p.paper_id,
-        p.paper_title,
-        p.conference_papers_conference_idToconference?.conference_name ?? '',
-        p.paper_status,
-        p.conference_status ?? '',
-        p.type ?? '',
-        p.sub_theme ?? '',
-        p.keywords ?? '',
-        `${p.users?.first_name ?? ''} ${p.users?.last_name ?? ''}`.trim(),
-        p.users?.email ?? '',
-        writers.join('; '),
-        writerEmails.join('; '),
-        payment?.payment_status ?? '',
-        payment?.total_amount != null ? formatRupiah(payment.total_amount as any) : '',
-        p.sent_loa ? 'Ya' : 'Tidak',
-      ]);
+      return {
+        paperId: p.paper_id,
+        paperTitle: p.paper_title,
+        conference: p.conference_papers_conference_idToconference?.conference_name ?? '',
+        paperStatus: p.paper_status,
+        conferenceStatus: p.conference_status ?? '',
+        type: p.type ?? '',
+        subTheme: p.sub_theme ?? '',
+        keywords: p.keywords ?? '',
+        submitterName: `${p.users?.first_name ?? ''} ${p.users?.last_name ?? ''}`.trim(),
+        submitterEmail: p.users?.email ?? '',
+        writers: writers.join('; '),
+        writerEmails: writerEmails.join('; '),
+        paymentStatus: payment?.payment_status ?? '',
+        totalPayment: payment?.total_amount != null ? formatRupiah(payment.total_amount as any) : '',
+        sentLoa: p.sent_loa ? 'Ya' : 'Tidak',
+      };
     });
-
-    return [csvRow(headers), ...rows].join('\n');
   }
 
-  async exportPaymentsCsv(conferenceId?: string): Promise<string> {
+  async getPaymentsRows(conferenceId?: string): Promise<Record<string, unknown>[]> {
     const payments = await this.prisma.payments.findMany({
-      where: conferenceId
-        ? { papers: { conference_id: conferenceId } }
-        : {},
+      where: conferenceId ? { papers: { conference_id: conferenceId } } : {},
       select: {
         payment_id: true,
         payment_status: true,
@@ -159,77 +117,43 @@ export class ReportService {
       orderBy: { payment_id: 'asc' },
     });
 
-    const headers = [
-      'Payment ID',
-      'Conference',
-      'Paper ID',
-      'Judul Paper',
-      'Submitter',
-      'Email Submitter',
-      'Status Pembayaran',
-      'Total Amount (Rp)',
-      'Due Date',
-      'Sudah Kirim Invoice',
-      'Penulis (Item Tagihan)',
-      'Email Penulis',
-      'Fee Penulis (Rp)',
-      'Is Member',
-    ];
-
-    const rows: string[] = [];
+    const rows: Record<string, unknown>[] = [];
     for (const pay of payments) {
-      const conference =
-        pay.papers?.conference_papers_conference_idToconference?.conference_name ?? '';
+      const conference = pay.papers?.conference_papers_conference_idToconference?.conference_name ?? '';
+      const base = {
+        paymentId: pay.payment_id,
+        conference,
+        paperId: pay.papers?.paper_id ?? '',
+        paperTitle: pay.papers?.paper_title ?? pay.description ?? '',
+        submitterName: `${pay.users?.first_name ?? ''} ${pay.users?.last_name ?? ''}`.trim(),
+        submitterEmail: pay.users?.email ?? '',
+        paymentStatus: pay.payment_status ?? '',
+        totalAmount: pay.total_amount != null ? formatRupiah(pay.total_amount as any) : '',
+        dueDate: pay.due_date ? new Date(pay.due_date).toLocaleDateString('id-ID') : '',
+        sentInvoice: pay.sent_invoice ? 'Ya' : 'Tidak',
+      };
+
       const invoiceLines = pay.invoices ?? [];
       if (invoiceLines.length === 0) {
-        rows.push(
-          csvRow([
-            pay.payment_id,
-            conference,
-            pay.papers?.paper_id ?? '',
-            pay.papers?.paper_title ?? pay.description ?? '',
-            `${pay.users?.first_name ?? ''} ${pay.users?.last_name ?? ''}`.trim(),
-            pay.users?.email ?? '',
-            pay.payment_status ?? '',
-            pay.total_amount != null ? formatRupiah(pay.total_amount as any) : '',
-            pay.due_date ? new Date(pay.due_date).toLocaleDateString('id-ID') : '',
-            pay.sent_invoice ? 'Ya' : 'Tidak',
-            '',
-            '',
-            '',
-            '',
-          ]),
-        );
+        rows.push({ ...base, writerName: '', writerEmail: '', writerFee: '', isMember: '' });
       } else {
         for (const inv of invoiceLines) {
-          rows.push(
-            csvRow([
-              pay.payment_id,
-              conference,
-              pay.papers?.paper_id ?? '',
-              pay.papers?.paper_title ?? pay.description ?? '',
-              `${pay.users?.first_name ?? ''} ${pay.users?.last_name ?? ''}`.trim(),
-              pay.users?.email ?? '',
-              pay.payment_status ?? '',
-              pay.total_amount != null ? formatRupiah(pay.total_amount as any) : '',
-              pay.due_date ? new Date(pay.due_date).toLocaleDateString('id-ID') : '',
-              pay.sent_invoice ? 'Ya' : 'Tidak',
-              `${inv.paper_writers.first_name} ${inv.paper_writers.last_name}`.trim(),
-              inv.paper_writers.email,
-              // nominal disimpan sebagai string di tabel invoices (bukan Decimal) —
-              // format manual aja, nggak lewat formatRupiah yang nunggu number/bigint.
-              Number.isNaN(Number(inv.nominal)) ? inv.nominal : `Rp${Number(inv.nominal).toLocaleString('id-ID')}`,
-              inv.paper_writers.member_status ? 'Member' : 'Non-Member',
-            ]),
-          );
+          rows.push({
+            ...base,
+            writerName: `${inv.paper_writers.first_name} ${inv.paper_writers.last_name}`.trim(),
+            writerEmail: inv.paper_writers.email,
+            // nominal disimpan sebagai string di tabel invoices (bukan Decimal) —
+            // format manual aja, nggak lewat formatRupiah yang nunggu number/bigint.
+            writerFee: Number.isNaN(Number(inv.nominal)) ? inv.nominal : `Rp${Number(inv.nominal).toLocaleString('id-ID')}`,
+            isMember: inv.paper_writers.member_status ? 'Member' : 'Non-Member',
+          });
         }
       }
     }
-
-    return [csvRow(headers), ...rows].join('\n');
+    return rows;
   }
 
-  async exportParticipantsCsv(conferenceId?: string): Promise<string> {
+  async getParticipantsRows(conferenceId?: string): Promise<Record<string, unknown>[]> {
     const participants = await this.prisma.participant.findMany({
       where: conferenceId ? { conference_id: conferenceId } : {},
       select: {
@@ -254,32 +178,16 @@ export class ReportService {
       orderBy: { attendance_id: 'asc' },
     });
 
-    const headers = [
-      'Attendance ID',
-      'Nama',
-      'Email',
-      'Conference',
-      'Role',
-      'Is Member',
-      'Status Pembayaran',
-      'Total Amount (Rp)',
-      'Sudah Kirim Invoice',
-    ];
-
-    const rows = participants.map((p) =>
-      csvRow([
-        p.attendance_id,
-        `${p.users?.first_name ?? ''} ${p.users?.last_name ?? ''}`.trim(),
-        p.users?.email ?? '',
-        p.conference?.conference_name ?? '',
-        p.role ?? '',
-        p.is_member ? 'Member' : 'Non-Member',
-        p.payment_status ?? '',
-        p.total_amount != null ? formatRupiah(p.total_amount) : '',
-        p.sent_invoice ? 'Ya' : 'Tidak',
-      ]),
-    );
-
-    return [csvRow(headers), ...rows].join('\n');
+    return participants.map((p) => ({
+      attendanceId: p.attendance_id,
+      name: `${p.users?.first_name ?? ''} ${p.users?.last_name ?? ''}`.trim(),
+      email: p.users?.email ?? '',
+      conference: p.conference?.conference_name ?? '',
+      role: p.role ?? '',
+      isMember: p.is_member ? 'Member' : 'Non-Member',
+      paymentStatus: p.payment_status ?? '',
+      totalAmount: p.total_amount != null ? formatRupiah(p.total_amount) : '',
+      sentInvoice: p.sent_invoice ? 'Ya' : 'Tidak',
+    }));
   }
 }

@@ -10,6 +10,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../common/permissions.guard';
 import { RequirePermission } from '../common/permissions.decorator';
 import { ReportService } from './report.service';
+import { PAPERS_COLUMNS, PARTICIPANTS_COLUMNS, PAYMENTS_COLUMNS, ReportColumn, resolveColumns } from './report-columns.constant';
+import { buildCsv, buildXlsx } from './report-file.util';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -28,60 +30,81 @@ function assertValidConferenceId(conferenceId?: string): void {
 export class ReportController {
   constructor(private readonly reportService: ReportService) {}
 
+  // Daftar kolom per jenis laporan — dipakai FE buat render checklist
+  // kolom (bukan hardcode duplikat label di 2 tempat).
+  @Get('columns')
+  @RequirePermission('report', 'download')
+  getColumns() {
+    return {
+      papers: PAPERS_COLUMNS,
+      payments: PAYMENTS_COLUMNS,
+      participants: PARTICIPANTS_COLUMNS,
+    };
+  }
+
+  private async sendReport(
+    res: any,
+    rows: Record<string, unknown>[],
+    columns: ReportColumn[],
+    format: string | undefined,
+    filenameBase: string,
+    sheetName: string,
+  ) {
+    if (format === 'xlsx') {
+      const buffer = await buildXlsx(rows, columns, sheetName);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.xlsx"`);
+      res.send(buffer);
+    } else {
+      const csv = buildCsv(rows, columns);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filenameBase}.csv"`);
+      res.send('﻿' + csv); // BOM for Excel UTF-8 compatibility
+    }
+  }
+
   @Get('papers/csv')
   @RequirePermission('report', 'download')
-  async downloadPapersCsv(
+  async downloadPapers(
     @Query('conferenceId') conferenceId: string | undefined,
+    @Query('columns') columnsParam: string | undefined,
+    @Query('format') format: string | undefined,
     @Res() res: any,
   ) {
     assertValidConferenceId(conferenceId);
-    const csv = await this.reportService.exportPapersCsv(conferenceId);
-    const filename = conferenceId
-      ? `papers-${conferenceId}.csv`
-      : 'papers-all.csv';
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`,
-    );
-    res.send('\uFEFF' + csv); // BOM for Excel UTF-8 compatibility
+    const rows = await this.reportService.getPapersRows(conferenceId);
+    const columns = resolveColumns(PAPERS_COLUMNS, columnsParam);
+    const filenameBase = conferenceId ? `papers-${conferenceId}` : 'papers-all';
+    await this.sendReport(res, rows, columns, format, filenameBase, 'Papers');
   }
 
   @Get('payments/csv')
   @RequirePermission('report', 'download')
-  async downloadPaymentsCsv(
+  async downloadPayments(
     @Query('conferenceId') conferenceId: string | undefined,
+    @Query('columns') columnsParam: string | undefined,
+    @Query('format') format: string | undefined,
     @Res() res: any,
   ) {
     assertValidConferenceId(conferenceId);
-    const csv = await this.reportService.exportPaymentsCsv(conferenceId);
-    const filename = conferenceId
-      ? `payments-${conferenceId}.csv`
-      : 'payments-all.csv';
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`,
-    );
-    res.send('\uFEFF' + csv); // BOM for Excel UTF-8 compatibility
+    const rows = await this.reportService.getPaymentsRows(conferenceId);
+    const columns = resolveColumns(PAYMENTS_COLUMNS, columnsParam);
+    const filenameBase = conferenceId ? `payments-${conferenceId}` : 'payments-all';
+    await this.sendReport(res, rows, columns, format, filenameBase, 'Payments');
   }
 
   @Get('participants/csv')
   @RequirePermission('report', 'download')
-  async downloadParticipantsCsv(
+  async downloadParticipants(
     @Query('conferenceId') conferenceId: string | undefined,
+    @Query('columns') columnsParam: string | undefined,
+    @Query('format') format: string | undefined,
     @Res() res: any,
   ) {
     assertValidConferenceId(conferenceId);
-    const csv = await this.reportService.exportParticipantsCsv(conferenceId);
-    const filename = conferenceId
-      ? `participants-${conferenceId}.csv`
-      : 'participants-all.csv';
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`,
-    );
-    res.send('\uFEFF' + csv); // BOM for Excel UTF-8 compatibility
+    const rows = await this.reportService.getParticipantsRows(conferenceId);
+    const columns = resolveColumns(PARTICIPANTS_COLUMNS, columnsParam);
+    const filenameBase = conferenceId ? `participants-${conferenceId}` : 'participants-all';
+    await this.sendReport(res, rows, columns, format, filenameBase, 'Participants');
   }
 }
