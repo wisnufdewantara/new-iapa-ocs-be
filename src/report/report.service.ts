@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { signedDocumentUrl } from '../papers/papers.service';
+import { signedTeamProofUrl, signedParticipantProofUrl } from '../payment/payment.service';
 
 function formatRupiah(n: bigint | number | null | undefined): string {
   if (n == null) return '';
@@ -28,6 +30,7 @@ export class ReportService {
         keywords: true,
         abstract_text: true,
         sent_loa: true,
+        document_url: true,
         conference_id: true,
         conference_papers_conference_idToconference: {
           select: { conference_name: true },
@@ -77,6 +80,7 @@ export class ReportService {
         paymentStatus: payment?.payment_status ?? '',
         totalPayment: payment?.total_amount != null ? formatRupiah(payment.total_amount as any) : '',
         sentLoa: p.sent_loa ? 'Ya' : 'Tidak',
+        documentUrl: p.document_url ? signedDocumentUrl(p.paper_id) : '',
       };
     });
   }
@@ -113,6 +117,10 @@ export class ReportService {
             },
           },
         },
+        payment_proofs: {
+          select: { proof_id: true },
+          take: 1,
+        },
       },
       orderBy: { payment_id: 'asc' },
     });
@@ -131,6 +139,7 @@ export class ReportService {
         totalAmount: pay.total_amount != null ? formatRupiah(pay.total_amount as any) : '',
         dueDate: pay.due_date ? new Date(pay.due_date).toLocaleDateString('id-ID') : '',
         sentInvoice: pay.sent_invoice ? 'Ya' : 'Tidak',
+        proofUrl: pay.payment_proofs.length > 0 ? signedTeamProofUrl(pay.payment_id) : '',
       };
 
       const invoiceLines = pay.invoices ?? [];
@@ -163,6 +172,7 @@ export class ReportService {
         is_member: true,
         role: true,
         sent_invoice: true,
+        link_payment_upload: true,
         conference_id: true,
         conference: {
           select: { conference_name: true },
@@ -188,6 +198,7 @@ export class ReportService {
       paymentStatus: p.payment_status ?? '',
       totalAmount: p.total_amount != null ? formatRupiah(p.total_amount) : '',
       sentInvoice: p.sent_invoice ? 'Ya' : 'Tidak',
+      proofUrl: p.link_payment_upload ? signedParticipantProofUrl(p.attendance_id) : '',
     }));
   }
 }

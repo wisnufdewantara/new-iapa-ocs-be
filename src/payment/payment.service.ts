@@ -9,6 +9,40 @@ import { applyUniqueCode } from './unique-code.util';
 import { generateInvoicePdf } from './invoice-pdf.util';
 import { generateReceiptPdf } from './receipt-pdf.util';
 import { Ocs2SyncService } from './ocs2-sync.service';
+import { uploadUrlToDiskPath } from '../common/upload-path.util';
+import { signFileToken } from '../common/file-access-token.util';
+
+export function contentTypeForPath(path: string): string {
+  if (path.endsWith('.pdf')) return 'application/pdf';
+  if (path.endsWith('.png')) return 'image/png';
+  if (path.endsWith('.jpg') || path.endsWith('.jpeg')) return 'image/jpeg';
+  return 'application/octet-stream';
+}
+
+// Bukti transfer sebelumnya diserve lewat static file PUBLIK — lihat
+// penjelasan lengkap di common/file-access-token.util.ts. Link yang
+// dikasih ke frontend sekarang capability URL, bukan path mentah; akses
+// dicek SEKALI di sini (method ini cuma dipanggil dari endpoint yang
+// sudah di-guard payment:verify), endpoint yang nge-serve filenya sendiri
+// cuma validasi token.
+// Absolute, BUKAN relatif — sama alasannya kayak signedDocumentUrl di
+// papers.service.ts: link ini harus bisa diklik langsung dari file
+// Excel/CSV yang didownload, bukan cuma dari dalam app sendiri.
+function fileLinkBase(): string {
+  return (process.env.FRONTEND_URL || 'https://dev-ocs.iapa.or.id').replace(/\/$/, '');
+}
+
+export function signedTeamProofUrl(paymentId: string): string {
+  return `${fileLinkBase()}/api/payment/${paymentId}/proof?token=${signFileToken('team-proof', paymentId)}`;
+}
+
+export function signedTeamProofUrlByProofId(proofId: string): string {
+  return `${fileLinkBase()}/api/payment/proof/${proofId}?token=${signFileToken('team-proof-by-id', proofId)}`;
+}
+
+export function signedParticipantProofUrl(attendanceId: string): string {
+  return `${fileLinkBase()}/api/payment/participant/${attendanceId}/proof?token=${signFileToken('participant-proof', attendanceId)}`;
+}
 
 @Injectable()
 export class PaymentService {
@@ -90,7 +124,44 @@ export class PaymentService {
     return updated;
   }
 
-  // Detail per-paper: breakdown tiap writer + fee masing-masing, buat
+  // Bukti transfer sebelumnya cuma diserve lewat static file publik
+  // (/api/uploads/payment-proofs/..., nggak ada auth) — dipakai endpoint
+  // terautentikasi (gated payment:verify lewat controller) buat GANTI
+  // itu. Payment bisa punya banyak proof (re-upload) — ambil yang
+  // terbaru, sama kayak yang ditampilkan paling atas di halaman detail.
+  async getTeamProofDiskPath(paymentId: string): Promise<string> {
+    const proof = await this.prisma.payment_proofs.findFirst({
+      where: { payment_id: paymentId },
+      orderBy: { upload_date: 'desc' },
+      select: { proof_url: true },
+    });
+    if (!proof) throw new NotFoundException('Belum ada bukti transfer untuk payment ini');
+    return uploadUrlToDiskPath(proof.proof_url);
+  }
+
+  // Varian by-proofId — dipakai halaman detail pembayaran yang nampilin
+  // SEMUA proof satu payment (bisa lebih dari 1 kalau re-upload), beda
+  // dari getTeamProofDiskPath() di atas yang cuma ngasih proof TERBARU
+  // (dipakai link di laporan, yang cukup 1 link per baris payment).
+  async getTeamProofDiskPathByProofId(proofId: string): Promise<string> {
+    const proof = await this.prisma.payment_proofs.findUnique({
+      where: { proof_id: proofId },
+      select: { proof_url: true },
+    });
+    if (!proof) throw new NotFoundException('Bukti transfer tidak ditemukan');
+    return uploadUrlToDiskPath(proof.proof_url);
+  }
+
+  async getParticipantProofDiskPath(attendanceId: string): Promise<string> {
+    const participant = await this.prisma.participant.findUnique({
+      where: { attendance_id: attendanceId },
+      select: { link_payment_upload: true },
+    });
+    if (!participant?.link_payment_upload) throw new NotFoundException('Belum ada bukti transfer untuk peserta ini');
+    return uploadUrlToDiskPath(participant.link_payment_upload);
+  }
+
+  // Detail per-paper: breakdown tiap writer & fee masing-masing, buat
   // halaman edit admin (mirip PaymentDetails.vue di ocs2).
   async paperDetail(paymentId: string) {
     const payment = await this.prisma.payments.findUnique({
@@ -135,7 +206,7 @@ export class PaymentService {
       // cara liat filenya walau tombol Accept/Reject udah nge-cek hasProof.
       proofs: payment.payment_proofs.map((p) => ({
         proofId: p.proof_id,
-        proofUrl: p.proof_url,
+        proofUrl: signedTeamProofUrlByProofId(p.proof_id),
         senderName: p.sender_name,
         transferDate: p.transfer_date,
         uploadDate: p.upload_date,
@@ -531,7 +602,7 @@ export class PaymentService {
       totalAmount: participant.total_amount != null ? Number(participant.total_amount) : null,
       paymentStatus: participant.payment_status,
       sentInvoice: participant.sent_invoice,
-      proofUrl: participant.link_payment_upload,
+      proofUrl: participant.link_payment_upload ? signedParticipantProofUrl(participant.attendance_id) : null,
       senderName: participant.payment_sender_name,
       transferDate: participant.payment_transfer_date,
     };

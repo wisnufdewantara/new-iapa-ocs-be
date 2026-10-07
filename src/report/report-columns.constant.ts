@@ -23,6 +23,7 @@ export const PAPERS_COLUMNS: ReportColumn[] = [
   { key: 'paymentStatus', label: 'Status Pembayaran' },
   { key: 'totalPayment', label: 'Total Pembayaran (Rp)' },
   { key: 'sentLoa', label: 'Sudah Kirim LoA' },
+  { key: 'documentUrl', label: 'Link Dokumen Paper' },
 ];
 
 export const PAYMENTS_COLUMNS: ReportColumn[] = [
@@ -40,6 +41,7 @@ export const PAYMENTS_COLUMNS: ReportColumn[] = [
   { key: 'writerEmail', label: 'Email Penulis' },
   { key: 'writerFee', label: 'Fee Penulis (Rp)' },
   { key: 'isMember', label: 'Is Member' },
+  { key: 'proofUrl', label: 'Link Bukti Bayar' },
 ];
 
 export const PARTICIPANTS_COLUMNS: ReportColumn[] = [
@@ -52,6 +54,7 @@ export const PARTICIPANTS_COLUMNS: ReportColumn[] = [
   { key: 'paymentStatus', label: 'Status Pembayaran' },
   { key: 'totalAmount', label: 'Total Amount (Rp)' },
   { key: 'sentInvoice', label: 'Sudah Kirim Invoice' },
+  { key: 'proofUrl', label: 'Link Bukti Bayar' },
 ];
 
 // Filter+reorder kolom berdasar query param `columns` (comma-separated

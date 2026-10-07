@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthorInput } from './dto/author-input.dto';
@@ -6,9 +6,27 @@ import { SubmitPaperDto } from './dto/submit-paper.dto';
 import { AuditLogService } from '../common/audit-log.service';
 import { ConferenceService } from '../conference/conference.service';
 import { Ocs2SyncService } from '../payment/ocs2-sync.service';
+import { uploadUrlToDiskPath } from '../common/upload-path.util';
+import { signFileToken } from '../common/file-access-token.util';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^\+?\d+$/;
+
+// Dokumen paper sebelumnya diserve lewat static file PUBLIK
+// (/api/uploads/papers/...) — siapapun yang punya/nebak URL-nya bisa
+// akses, lepas dari login/role. Sekarang link yang dikasih ke frontend
+// berupa capability URL (lihat file-access-token.util.ts) — akses dicek
+// SEKALI di sini pas link di-generate (fungsi ini cuma dipanggil dari
+// method yang sudah di-guard login/permission), endpoint yang nge-serve
+// filenya sendiri (PaperDocumentController) cuma validasi token.
+export function signedDocumentUrl(paperId: string): string {
+  // Absolute, BUKAN relatif — link ini harus bisa diklik langsung dari
+  // luar konteks SPA (file Excel/CSV yang didownload), bukan cuma dari
+  // dalam app sendiri. /api/* di origin FRONTEND_URL diproksi ke backend
+  // yang sama (lihat komentar main.ts soal .htaccess exclude /api).
+  const base = (process.env.FRONTEND_URL || 'https://dev-ocs.iapa.or.id').replace(/\/$/, '');
+  return `${base}/api/papers/${paperId}/document?token=${signFileToken('paper-document', paperId)}`;
+}
 
 @Injectable()
 export class PapersService {
@@ -38,10 +56,23 @@ export class PapersService {
           paperTitle: paper.paper_title,
           conferenceStatus: paper.conference_status,
           paperStatus: paper.paper_status,
-          documentUrl: paper.document_url,
+          documentUrl: paper.document_url ? signedDocumentUrl(paper.paper_id) : null,
           reviewFeedback: paper.review_feedback,
         }
       : null;
+  }
+
+  // Dipanggil PaperDocumentController setelah token-nya divalidasi —
+  // nggak perlu cek permission lagi di sini, itu udah diputusin pas link
+  // di-generate (lihat signedDocumentUrl).
+  async getDocumentDiskPath(paperId: string): Promise<string> {
+    const paper = await this.prisma.papers.findUnique({
+      where: { paper_id: paperId },
+      select: { document_url: true },
+    });
+    if (!paper) throw new NotFoundException('Paper tidak ditemukan');
+    if (!paper.document_url) throw new NotFoundException('Paper ini belum ada dokumennya');
+    return uploadUrlToDiskPath(paper.document_url);
   }
 
   // Validasi manual niru validatePaperWriter di PaperServiceImpl.java lama
@@ -170,7 +201,7 @@ export class PapersService {
     return papers.map((p) => ({
       paperId: p.paper_id,
       paperTitle: p.paper_title,
-      documentUrl: p.document_url,
+      documentUrl: p.document_url ? signedDocumentUrl(p.paper_id) : null,
       conferenceStatus: p.conference_status,
       paymentId: p.payments[0]?.payment_id ?? null,
       type: p.type,
