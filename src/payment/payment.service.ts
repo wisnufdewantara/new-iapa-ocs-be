@@ -503,7 +503,13 @@ export class PaymentService {
       }
     }
 
-    return updated;
+    // Pre-existing bug (bukan dari fix hari ini) — participant.total_amount
+    // itu BigInt di schema, dikembalikan mentah ke Express bikin crash
+    // "Do not know how to serialize a BigInt" SETELAH update ke DB-nya
+    // sendiri sukses. Akibatnya admin lihat error di browser padahal
+    // verify/reject-nya beneran kepencet & kesimpen — ketahuan dari log
+    // produksi (stderr.log, 2026-10-06 sore).
+    return { ...updated, total_amount: updated.total_amount != null ? Number(updated.total_amount) : null };
   }
 
   // Detail peserta buat admin — mirror paperDetail() tapi jauh lebih
