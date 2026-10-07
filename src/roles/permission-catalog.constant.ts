@@ -15,7 +15,7 @@ export const PERMISSION_CATALOG: Record<string, string[]> = {
   admin_gate: ['verify'],
   payment: ['submit', 'verify', 'manage_types', 'manage_invoices'],
   participant: ['join'],
-  developer: ['view'],
+  developer: ['view', 'sync'],
   report: ['download'],
 };
 
