@@ -82,22 +82,41 @@ export class UsersService {
         gender: true,
         role: true,
         created_at: true,
+        photo_url: true,
       },
     });
     if (!user) throw new NotFoundException('User tidak ditemukan');
 
-    const [papers, participant, payments] = await Promise.all([
+    const conferenceName = { conference_papers_conference_idToconference: { select: { conference_name: true } } };
+    const [papers, participant, payments, coAuthored] = await Promise.all([
       this.prisma.papers.findMany({
         where: { submitter_id: userId },
-        select: { paper_id: true, paper_title: true, paper_status: true, conference_status: true },
+        select: { paper_id: true, paper_title: true, paper_status: true, conference_status: true, ...conferenceName },
       }),
       this.prisma.participant.findUnique({
         where: { attendance_id: userId },
-        select: { is_member: true, payment_status: true, total_amount: true },
+        select: {
+          is_member: true,
+          payment_status: true,
+          total_amount: true,
+          conference: { select: { conference_name: true } },
+        },
       }),
       this.prisma.payments.findMany({
         where: { submitter_id: userId },
-        select: { payment_id: true, total_amount: true, payment_status: true },
+        select: { payment_id: true, total_amount: true, payment_status: true, papers: { select: { paper_title: true } } },
+      }),
+      // Paper orang lain yang mencantumkan user ini sebagai penulis —
+      // paper_writers nggak punya FK ke users, jadi dicocokkan lewat email.
+      this.prisma.paper_writers.findMany({
+        where: {
+          email: { equals: user.email, mode: 'insensitive' },
+          papers: { submitter_id: { not: userId } },
+        },
+        select: {
+          role: true,
+          papers: { select: { paper_id: true, paper_title: true, conference_status: true, ...conferenceName } },
+        },
       }),
     ]);
 
@@ -113,14 +132,24 @@ export class UsersService {
       gender: user.gender,
       role: user.role,
       createdAt: user.created_at,
+      photoUrl: user.photo_url,
       papers: papers.map((p) => ({
         paperId: p.paper_id,
         title: p.paper_title,
         paperStatus: p.paper_status,
         conferenceStatus: p.conference_status,
+        conferenceName: p.conference_papers_conference_idToconference?.conference_name ?? null,
+      })),
+      coAuthoredPapers: coAuthored.map((w) => ({
+        paperId: w.papers.paper_id,
+        title: w.papers.paper_title,
+        conferenceStatus: w.papers.conference_status,
+        conferenceName: w.papers.conference_papers_conference_idToconference?.conference_name ?? null,
+        writerRole: w.role,
       })),
       participant: participant
         ? {
+            conferenceName: participant.conference?.conference_name ?? null,
             isMember: participant.is_member,
             paymentStatus: participant.payment_status,
             totalAmount: participant.total_amount != null ? Number(participant.total_amount) : null,
@@ -128,6 +157,7 @@ export class UsersService {
         : null,
       payments: payments.map((p) => ({
         paymentId: p.payment_id,
+        paperTitle: p.papers?.paper_title ?? null,
         amount: p.total_amount != null ? Number(p.total_amount) : null,
         status: p.payment_status,
       })),
