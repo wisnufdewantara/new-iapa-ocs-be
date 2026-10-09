@@ -1,6 +1,15 @@
 import { Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Query, Res } from '@nestjs/common';
 import { verifyFileToken } from '../common/file-access-token.util';
+import { StoredFileLocation } from '../common/upload-path.util';
 import { PaymentService, contentTypeForPath } from './payment.service';
+
+// File lokal di-stream, bukti lama dari Supabase di-redirect (lihat
+// resolveStoredFile) — token udah dicek sebelum ini dipanggil.
+function sendStoredFile(res: any, loc: StoredFileLocation) {
+  if (loc.kind === 'remote') return res.redirect(302, loc.url);
+  res.setHeader('Content-Type', contentTypeForPath(loc.path));
+  res.sendFile(loc.path);
+}
 
 // TANPA JwtAuthGuard — sama alasannya kayak PaperDocumentController:
 // link bukti transfer harus bisa diklik langsung sebagai <a href> (UI
@@ -23,9 +32,7 @@ export class PaymentProofController {
     if (!verifyFileToken(token, 'team-proof', paymentId)) {
       throw new ForbiddenException('Link tidak valid atau sudah kedaluwarsa');
     }
-    const diskPath = await this.paymentService.getTeamProofDiskPath(paymentId);
-    res.setHeader('Content-Type', contentTypeForPath(diskPath));
-    res.sendFile(diskPath);
+    sendStoredFile(res, await this.paymentService.getTeamProofDiskPath(paymentId));
   }
 
   // Proof SPESIFIK by id — dipakai halaman detail pembayaran yang
@@ -39,9 +46,7 @@ export class PaymentProofController {
     if (!verifyFileToken(token, 'team-proof-by-id', proofId)) {
       throw new ForbiddenException('Link tidak valid atau sudah kedaluwarsa');
     }
-    const diskPath = await this.paymentService.getTeamProofDiskPathByProofId(proofId);
-    res.setHeader('Content-Type', contentTypeForPath(diskPath));
-    res.sendFile(diskPath);
+    sendStoredFile(res, await this.paymentService.getTeamProofDiskPathByProofId(proofId));
   }
 
   @Get('participant/:attendanceId/proof')
@@ -53,8 +58,6 @@ export class PaymentProofController {
     if (!verifyFileToken(token, 'participant-proof', attendanceId)) {
       throw new ForbiddenException('Link tidak valid atau sudah kedaluwarsa');
     }
-    const diskPath = await this.paymentService.getParticipantProofDiskPath(attendanceId);
-    res.setHeader('Content-Type', contentTypeForPath(diskPath));
-    res.sendFile(diskPath);
+    sendStoredFile(res, await this.paymentService.getParticipantProofDiskPath(attendanceId));
   }
 }

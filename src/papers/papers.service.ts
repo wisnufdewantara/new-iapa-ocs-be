@@ -6,7 +6,7 @@ import { SubmitPaperDto } from './dto/submit-paper.dto';
 import { AuditLogService } from '../common/audit-log.service';
 import { ConferenceService } from '../conference/conference.service';
 import { Ocs2SyncService } from '../payment/ocs2-sync.service';
-import { uploadUrlToDiskPath } from '../common/upload-path.util';
+import { StoredFileLocation, resolveStoredFile } from '../common/upload-path.util';
 import { signFileToken } from '../common/file-access-token.util';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -65,14 +65,14 @@ export class PapersService {
   // Dipanggil PaperDocumentController setelah token-nya divalidasi —
   // nggak perlu cek permission lagi di sini, itu udah diputusin pas link
   // di-generate (lihat signedDocumentUrl).
-  async getDocumentDiskPath(paperId: string): Promise<string> {
+  async getDocumentDiskPath(paperId: string): Promise<StoredFileLocation> {
     const paper = await this.prisma.papers.findUnique({
       where: { paper_id: paperId },
       select: { document_url: true },
     });
     if (!paper) throw new NotFoundException('Paper tidak ditemukan');
     if (!paper.document_url) throw new NotFoundException('Paper ini belum ada dokumennya');
-    return uploadUrlToDiskPath(paper.document_url);
+    return resolveStoredFile(paper.document_url);
   }
 
   // Validasi manual niru validatePaperWriter di PaperServiceImpl.java lama

@@ -22,8 +22,10 @@ export class PaperDocumentController {
     if (!verifyFileToken(token, 'paper-document', paperId)) {
       throw new ForbiddenException('Link tidak valid atau sudah kedaluwarsa');
     }
-    const diskPath = await this.papersService.getDocumentDiskPath(paperId);
+    const loc = await this.papersService.getDocumentDiskPath(paperId);
+    // Paper hasil sync dari ocs2 lama nyimpen URL Supabase — redirect.
+    if (loc.kind === 'remote') return res.redirect(302, loc.url);
     res.setHeader('Content-Type', 'application/pdf');
-    res.sendFile(diskPath);
+    res.sendFile(loc.path);
   }
 }

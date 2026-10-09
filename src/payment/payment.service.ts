@@ -9,7 +9,7 @@ import { applyUniqueCode } from './unique-code.util';
 import { generateInvoicePdf } from './invoice-pdf.util';
 import { generateReceiptPdf } from './receipt-pdf.util';
 import { Ocs2SyncService } from './ocs2-sync.service';
-import { uploadUrlToDiskPath } from '../common/upload-path.util';
+import { StoredFileLocation, resolveStoredFile } from '../common/upload-path.util';
 import { signFileToken } from '../common/file-access-token.util';
 
 export function contentTypeForPath(path: string): string {
@@ -129,36 +129,36 @@ export class PaymentService {
   // terautentikasi (gated payment:verify lewat controller) buat GANTI
   // itu. Payment bisa punya banyak proof (re-upload) — ambil yang
   // terbaru, sama kayak yang ditampilkan paling atas di halaman detail.
-  async getTeamProofDiskPath(paymentId: string): Promise<string> {
+  async getTeamProofDiskPath(paymentId: string): Promise<StoredFileLocation> {
     const proof = await this.prisma.payment_proofs.findFirst({
       where: { payment_id: paymentId },
       orderBy: { upload_date: 'desc' },
       select: { proof_url: true },
     });
     if (!proof) throw new NotFoundException('Belum ada bukti transfer untuk payment ini');
-    return uploadUrlToDiskPath(proof.proof_url);
+    return resolveStoredFile(proof.proof_url);
   }
 
   // Varian by-proofId — dipakai halaman detail pembayaran yang nampilin
   // SEMUA proof satu payment (bisa lebih dari 1 kalau re-upload), beda
   // dari getTeamProofDiskPath() di atas yang cuma ngasih proof TERBARU
   // (dipakai link di laporan, yang cukup 1 link per baris payment).
-  async getTeamProofDiskPathByProofId(proofId: string): Promise<string> {
+  async getTeamProofDiskPathByProofId(proofId: string): Promise<StoredFileLocation> {
     const proof = await this.prisma.payment_proofs.findUnique({
       where: { proof_id: proofId },
       select: { proof_url: true },
     });
     if (!proof) throw new NotFoundException('Bukti transfer tidak ditemukan');
-    return uploadUrlToDiskPath(proof.proof_url);
+    return resolveStoredFile(proof.proof_url);
   }
 
-  async getParticipantProofDiskPath(attendanceId: string): Promise<string> {
+  async getParticipantProofDiskPath(attendanceId: string): Promise<StoredFileLocation> {
     const participant = await this.prisma.participant.findUnique({
       where: { attendance_id: attendanceId },
       select: { link_payment_upload: true },
     });
     if (!participant?.link_payment_upload) throw new NotFoundException('Belum ada bukti transfer untuk peserta ini');
-    return uploadUrlToDiskPath(participant.link_payment_upload);
+    return resolveStoredFile(participant.link_payment_upload);
   }
 
   // Detail per-paper: breakdown tiap writer & fee masing-masing, buat
