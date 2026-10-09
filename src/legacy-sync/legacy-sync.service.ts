@@ -16,6 +16,9 @@ interface TableSpec {
   name: string;
   pk: string;
   excludeColumns?: string[];
+  // Kondisi tambahan di ON CONFLICT DO UPDATE — baris lokal yang nggak
+  // memenuhi ini dibiarkan (nggak ditimpa data ocs2).
+  updateWhere?: string;
 }
 
 // SENGAJA TIDAK termasuk app_settings & payment_types — lihat komentar
@@ -29,7 +32,14 @@ const TABLES: TableSpec[] = [
   { name: 'paper_reviewer', pk: 'review_id' },
   { name: 'sessions', pk: 'session_id' },
   { name: 'schedule', pk: 'schedule_id' },
-  { name: 'participant', pk: 'attendance_id' },
+  // Peserta yang daftar ulang ke conference baru (ParticipantService.join)
+  // barisnya dipakai ulang — jangan ditimpa balik pakai data conference
+  // lamanya dari ocs2.
+  {
+    name: 'participant',
+    pk: 'attendance_id',
+    updateWhere: 'participant.conference_id IS NOT DISTINCT FROM EXCLUDED.conference_id',
+  },
   { name: 'attendance', pk: 'id' },
   { name: 'payments', pk: 'payment_id' },
   { name: 'payment_proofs', pk: 'proof_id' },
@@ -101,7 +111,9 @@ export class LegacySyncService {
     const conflictClause =
       updateCols.length === 0
         ? `ON CONFLICT (${table.pk}) DO NOTHING`
-        : `ON CONFLICT (${table.pk}) DO UPDATE SET ${updateCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ')}`;
+        : `ON CONFLICT (${table.pk}) DO UPDATE SET ${updateCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ')}${
+            table.updateWhere ? ` WHERE ${table.updateWhere}` : ''
+          }`;
 
     const singleSql = (n: number) => {
       const placeholders = columns.map((_, i) => `$${n * columns.length + i + 1}`).join(', ');

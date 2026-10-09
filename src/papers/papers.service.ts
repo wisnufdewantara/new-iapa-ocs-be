@@ -37,11 +37,17 @@ export class PapersService {
     private ocs2Sync: Ocs2SyncService,
   ) {}
 
-  async findMine(userId: string) {
+  // conferenceId opsional: tanpa itu = paper TERBARU dari conference mana
+  // pun (dashboard nentuin sendiri masih aktif atau riwayat lewat
+  // conferenceId di respons); dengan itu = paper di conference itu saja
+  // (dipakai halaman Join, biar presenter tahun lalu tetap bisa join).
+  async findMine(userId: string, conferenceId?: string) {
     const paper = await this.prisma.papers.findFirst({
-      where: { submitter_id: userId },
+      where: { submitter_id: userId, ...(conferenceId ? { conference_id: conferenceId } : {}) },
       orderBy: { upload_date: 'desc' },
       select: {
+        conference_id: true,
+        conference_papers_conference_idToconference: { select: { conference_name: true } },
         paper_id: true,
         paper_title: true,
         conference_status: true,
@@ -54,6 +60,8 @@ export class PapersService {
       ? {
           paperId: paper.paper_id,
           paperTitle: paper.paper_title,
+          conferenceId: paper.conference_id,
+          conferenceName: paper.conference_papers_conference_idToconference?.conference_name ?? null,
           conferenceStatus: paper.conference_status,
           paperStatus: paper.paper_status,
           documentUrl: paper.document_url ? signedDocumentUrl(paper.paper_id) : null,

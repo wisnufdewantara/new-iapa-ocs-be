@@ -36,8 +36,8 @@ export class PapersController {
 
   @Get('mine')
   @RequirePermission('papers', 'submit')
-  findMine(@Req() req: any) {
-    return this.papersService.findMine((req.user as { userId: string }).userId);
+  findMine(@Req() req: any, @Query('conferenceId') conferenceId?: string) {
+    return this.papersService.findMine((req.user as { userId: string }).userId, conferenceId || undefined);
   }
 
   @Post()

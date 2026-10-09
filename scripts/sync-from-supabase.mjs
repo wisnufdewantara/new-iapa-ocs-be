@@ -55,7 +55,12 @@ const TABLES = [
   { name: 'paper_reviewer', pk: 'review_id' },
   { name: 'sessions', pk: 'session_id' },
   { name: 'schedule', pk: 'schedule_id' },
-  { name: 'participant', pk: 'attendance_id' },
+  // Lihat komentar yang sama di src/legacy-sync/legacy-sync.service.ts.
+  {
+    name: 'participant',
+    pk: 'attendance_id',
+    updateWhere: 'participant.conference_id IS NOT DISTINCT FROM EXCLUDED.conference_id',
+  },
   { name: 'attendance', pk: 'id' },
   { name: 'payments', pk: 'payment_id' },
   { name: 'payment_proofs', pk: 'proof_id' },
@@ -115,7 +120,9 @@ async function syncTable(supabase, dewaweb, table) {
   const conflictClause =
     updateCols.length === 0
       ? `ON CONFLICT (${table.pk}) DO NOTHING`
-      : `ON CONFLICT (${table.pk}) DO UPDATE SET ${updateCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ')}`;
+      : `ON CONFLICT (${table.pk}) DO UPDATE SET ${updateCols.map((c) => `${c} = EXCLUDED.${c}`).join(', ')}${
+          table.updateWhere ? ` WHERE ${table.updateWhere}` : ''
+        }`;
 
   const singleSql = (n) => {
     const placeholders = columns.map((_, i) => `$${n * columns.length + i + 1}`).join(', ');

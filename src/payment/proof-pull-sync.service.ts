@@ -119,7 +119,7 @@ export class ProofPullSyncService {
       // sistem (users udah ke-sync lebih dulu), jadi tinggal match 1:1.
       let participantsPulled = 0;
       const participantsRes = await fetch(
-        `${url}/rest/v1/participant?select=attendance_id,link_payment_upload,payment_sender_name,payment_transfer_date,payment_status&limit=5000`,
+        `${url}/rest/v1/participant?select=attendance_id,conference_id,link_payment_upload,payment_sender_name,payment_transfer_date,payment_status&limit=5000`,
         { headers },
       );
       if (!participantsRes.ok) {
@@ -127,6 +127,7 @@ export class ProofPullSyncService {
       } else {
         const supaParticipants = (await participantsRes.json()) as {
           attendance_id: string;
+          conference_id: string | null;
           link_payment_upload: string | null;
           payment_sender_name: string | null;
           payment_transfer_date: string | null;
@@ -137,6 +138,10 @@ export class ProofPullSyncService {
           if (!sp.link_payment_upload) continue;
           const local = await this.prisma.participant.findUnique({ where: { attendance_id: sp.attendance_id } });
           if (!local) continue;
+          // Baris lokal udah dipindah ke conference baru (daftar ulang,
+          // lihat ParticipantService.join) — bukti di ocs2 itu punya
+          // conference LAMA, jangan ditarik ke pendaftaran yang baru.
+          if (local.conference_id !== sp.conference_id) continue;
           // URL proof lokal udah sama (bukan upload baru) ATAU status
           // lokal udah lebih maju dari "waiting for payment" (verified/
           // rejected/waiting for verification) — JANGAN ditimpa balik,
