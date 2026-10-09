@@ -438,6 +438,9 @@ export class PaymentService {
       if (!payment || payment.papers?.submitter_id !== userId) {
         throw new ForbiddenException('Payment ini bukan milik Anda');
       }
+      if (payment.payment_status === 'verified') {
+        throw new BadRequestException('Pembayaran ini sudah diverifikasi');
+      }
       await this.prisma.payment_proofs.create({
         data: { payment_id: paymentId, proof_url: proofUrl, sender_name: senderName, transfer_date: transferDate },
       });
@@ -456,6 +459,11 @@ export class PaymentService {
 
     const participant = await this.prisma.participant.findUnique({ where: { attendance_id: userId } });
     if (!participant) throw new NotFoundException('Data peserta tidak ditemukan');
+    // Upload ulang dari peserta nggak boleh nurunin status yang udah
+    // verified balik ke "waiting for verification".
+    if (participant.payment_status === 'verified') {
+      throw new BadRequestException('Pembayaran ini sudah diverifikasi');
+    }
     await this.prisma.participant.update({
       where: { attendance_id: userId },
       data: {
