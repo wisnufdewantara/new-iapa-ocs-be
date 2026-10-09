@@ -1,6 +1,6 @@
 {
   "name": "newocs-be",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "main": "index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/main.ts",

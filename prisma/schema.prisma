@@ -397,6 +397,10 @@ model users {
   role                                              String           @default("Peserta") @db.VarChar(255)
   hash_algorithm                                    String?          @default("bcrypt") @db.VarChar(255)
   photo_url                                         String?
+  // Kolom newocs-only (nggak ada di Supabase, jadi nggak kesentuh sync).
+  // Diisi saat registrasi (checkbox S&K wajib). Akun yang sudah ada
+  // sebelum fitur S&K rilis (2026-10-09) di-backfill = dianggap setuju.
+  terms_accepted_at                                 DateTime?        @db.Timestamp(6)
   paper_reviewer_paper_reviewer_manager_idTousers   paper_reviewer[] @relation("paper_reviewer_manager_idTousers")
   paper_reviewer_paper_reviewer_reviewer_idTousers  paper_reviewer[] @relation("paper_reviewer_reviewer_idTousers")
   paper_reviewer_paper_reviewer_submitter_idTousers paper_reviewer[] @relation("paper_reviewer_submitter_idTousers")

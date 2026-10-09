@@ -78,6 +78,7 @@ export class AuthService {
         phone: dto.phone,
         country: dto.country,
         role: 'Peserta',
+        terms_accepted_at: new Date(),
       },
     });
 
