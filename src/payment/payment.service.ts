@@ -394,7 +394,16 @@ export class PaymentService {
   async mine(userId: string) {
     const papers = await this.prisma.papers.findMany({
       where: { submitter_id: userId },
-      include: { payments: true },
+      include: {
+        payments: {
+          include: {
+            payment_proofs: {
+              orderBy: { upload_date: 'desc' },
+              select: { proof_id: true, sender_name: true, transfer_date: true, upload_date: true },
+            },
+          },
+        },
+      },
     });
     const presenterCode = await this.uniqueCodeFor('presenter');
     const teamPayments: Record<string, any>[] = [];
@@ -410,6 +419,14 @@ export class PaymentService {
           status: calculated.payment_status,
           description: calculated.description,
           sentInvoice: calculated.sent_invoice,
+          // Link bertoken (sama kayak di halaman admin) — biar pemilik
+          // bisa lihat lagi bukti yang udah dia upload.
+          proofs: payment.payment_proofs.map((pr) => ({
+            url: signedTeamProofUrlByProofId(pr.proof_id),
+            senderName: pr.sender_name,
+            transferDate: pr.transfer_date,
+            uploadedAt: pr.upload_date,
+          })),
         });
       }
     }
@@ -426,6 +443,16 @@ export class PaymentService {
         status: participant.payment_status,
         description: participant.description,
         sentInvoice: participant.sent_invoice,
+        proofs: participant.link_payment_upload
+          ? [
+              {
+                url: signedParticipantProofUrl(participant.attendance_id),
+                senderName: participant.payment_sender_name,
+                transferDate: participant.payment_transfer_date,
+                uploadedAt: null,
+              },
+            ]
+          : [],
       };
     }
 
