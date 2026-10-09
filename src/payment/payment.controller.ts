@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -98,6 +99,51 @@ export class PaymentController {
   @RequirePermission('payment', 'verify')
   paperDetail(@Param('paymentId', ParseUUIDPipe) paymentId: string) {
     return this.paymentService.paperDetail(paymentId);
+  }
+
+  // Admin upload bukti transfer atas nama presenter (bukti masuk lewat
+  // WA/email). Pakai upload config + validasi isi file yang SAMA dengan
+  // upload self-service (PDF/PNG/JPEG, bytes di-decode beneran).
+  @Post(':paymentId/admin-proof')
+  @RequirePermission('payment', 'verify')
+  @UseInterceptors(FileInterceptor('proof', paymentProofUploadOptions))
+  async adminUploadTeamProof(
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('senderName') senderName?: string,
+    @Body('transferDate') transferDate?: string,
+  ) {
+    if (!file) throw new BadRequestException('File bukti transfer wajib diupload');
+    await assertValidProofFile(file.path, file.mimetype);
+    return this.paymentService.adminUploadTeamProof(
+      paymentId,
+      `/api/uploads/payment-proofs/${file.filename}`,
+      senderName,
+      transferDate,
+      (req.user as { userId: string }).userId,
+    );
+  }
+
+  @Post('participant/:attendanceId/admin-proof')
+  @RequirePermission('payment', 'verify')
+  @UseInterceptors(FileInterceptor('proof', paymentProofUploadOptions))
+  async adminUploadParticipantProof(
+    @Param('attendanceId', ParseUUIDPipe) attendanceId: string,
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('senderName') senderName?: string,
+    @Body('transferDate') transferDate?: string,
+  ) {
+    if (!file) throw new BadRequestException('File bukti transfer wajib diupload');
+    await assertValidProofFile(file.path, file.mimetype);
+    return this.paymentService.adminUploadParticipantProof(
+      attendanceId,
+      `/api/uploads/payment-proofs/${file.filename}`,
+      senderName,
+      transferDate,
+      (req.user as { userId: string }).userId,
+    );
   }
 
   @Put(':paymentId/writers')

@@ -468,6 +468,58 @@ export class PaymentService {
     return { uploaded: true };
   }
 
+  // Admin upload bukti transfer ATAS NAMA presenter/peserta (mis. bukti
+  // dikirim lewat WA/email, bukan diupload sendiri). Beda dari uploadProof()
+  // di atas: nggak ada cek kepemilikan (dijaga payment:verify di controller),
+  // dan status yang udah "verified" nggak diturunin balik — admin bisa aja
+  // cuma nambahin arsip bukti buat pembayaran yang udah diverifikasi.
+  async adminUploadTeamProof(
+    paymentId: string,
+    proofUrl: string,
+    senderName: string | undefined,
+    transferDate: string | undefined,
+    actorUserId?: string,
+  ) {
+    const payment = await this.prisma.payments.findUnique({ where: { payment_id: paymentId } });
+    if (!payment) throw new NotFoundException('Payment tidak ditemukan');
+    await this.prisma.payment_proofs.create({
+      data: { payment_id: paymentId, proof_url: proofUrl, sender_name: senderName, transfer_date: transferDate },
+    });
+    if (payment.payment_status !== 'verified') {
+      await this.prisma.payments.update({
+        where: { payment_id: paymentId },
+        data: { payment_status: 'waiting for verification' },
+      });
+      if (payment.paper_id) {
+        await this.ocs2Sync.pushPaymentStatusByPaperId(payment.paper_id, 'waiting for verification');
+      }
+    }
+    await this.auditLog.log(actorUserId, 'payment_admin_upload_proof', 'payments', paymentId);
+    return { uploaded: true };
+  }
+
+  async adminUploadParticipantProof(
+    attendanceId: string,
+    proofUrl: string,
+    senderName: string | undefined,
+    transferDate: string | undefined,
+    actorUserId?: string,
+  ) {
+    const participant = await this.prisma.participant.findUnique({ where: { attendance_id: attendanceId } });
+    if (!participant) throw new NotFoundException('Peserta tidak ditemukan');
+    await this.prisma.participant.update({
+      where: { attendance_id: attendanceId },
+      data: {
+        link_payment_upload: proofUrl,
+        payment_sender_name: senderName,
+        payment_transfer_date: transferDate,
+        ...(participant.payment_status !== 'verified' ? { payment_status: 'waiting for verification' } : {}),
+      },
+    });
+    await this.auditLog.log(actorUserId, 'payment_participant_admin_upload_proof', 'participant', attendanceId);
+    return { uploaded: true };
+  }
+
   async listByConference(conferenceId: string) {
     const papers = await this.prisma.papers.findMany({
       where: { conference_id: conferenceId },
