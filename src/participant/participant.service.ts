@@ -65,6 +65,17 @@ export class ParticipantService {
           role: 'Participant',
         },
       });
+      // Trigger yang sama juga nyetel status 'waiting for calculation',
+      // padahal nominal peserta udah final saat itu juga — langsung naikin
+      // ke 'waiting for payment' biar peserta bisa upload bukti.
+      if (created.total_amount != null && created.payment_status === 'waiting for calculation') {
+        return this.serialize(
+          await this.prisma.participant.update({
+            where: { attendance_id: userId },
+            data: { payment_status: 'waiting for payment' },
+          }),
+        );
+      }
       return this.serialize(created);
     }
 
