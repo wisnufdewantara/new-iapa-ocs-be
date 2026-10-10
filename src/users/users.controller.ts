@@ -23,6 +23,15 @@ export class UsersController {
     return this.usersService.findOne(id);
   }
 
+  // "Login sebagai" peserta — buat admin bantu/cek tampilan dari sisi
+  // peserta. Permission terpisah dari users:manage (override level class).
+  @Post(':id/impersonate')
+  @RequirePermission('users', 'impersonate')
+  impersonate(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    const actor = req.user as { userId: string; impersonatorId?: string };
+    return this.usersService.impersonate(id, actor.userId, actor.impersonatorId);
+  }
+
   @Post()
   create(@Body() dto: CreateUserDto, @Req() req: any) {
     return this.usersService.create(dto, (req.user as { userId: string }).userId);

@@ -8,7 +8,7 @@ export const PERMISSION_CATALOG: Record<string, string[]> = {
   attendance: ['manage'],
   assign_reviewer: ['manage'],
   settings: ['manage'],
-  users: ['manage'],
+  users: ['manage', 'impersonate'],
   roles: ['manage'],
   loa: ['manage'],
   certificate: ['manage', 'manage_awards', 'manage_templates'],

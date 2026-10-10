@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Req, UnauthorizedException, UseGuards, ForbiddenException } from '@nestjs/common';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from '../common/permissions.guard';
 import { RequirePermission } from '../common/permissions.decorator';
@@ -53,6 +53,9 @@ export class AuthController {
   @Patch('me/password')
   @UseGuards(JwtAuthGuard)
   changePassword(@Body() dto: ChangePasswordDto, @Req() req: any) {
+    if (req.user.impersonatorId) {
+      throw new ForbiddenException('Password tidak bisa diganti saat admin login sebagai pengguna ini');
+    }
     return this.authService.changePassword(req.user.userId, dto);
   }
 

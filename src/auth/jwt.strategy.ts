@@ -12,7 +12,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; username: string; role: string }) {
-    return { userId: payload.sub, username: payload.username, role: payload.role };
+  // imp = user_id admin yang lagi "login sebagai" user ini (lihat
+  // UsersService.impersonate) — undefined untuk login biasa.
+  async validate(payload: { sub: string; username: string; role: string; imp?: string }) {
+    return { userId: payload.sub, username: payload.username, role: payload.role, impersonatorId: payload.imp };
   }
 }

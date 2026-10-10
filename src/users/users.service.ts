@@ -1,4 +1,5 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogService } from '../common/audit-log.service';
@@ -9,7 +10,41 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private auditLog: AuditLogService,
+    private jwt: JwtService,
   ) {}
+
+  // Token "login sebagai" — role di token = role TARGET, jadi aksesnya
+  // persis seperti peserta itu sendiri (PermissionsGuard baca role dari
+  // token). Sengaja dibatasi: cuma ke role Peserta (bukan admin/staf
+  // lain), nggak bisa berantai, umur 1 jam, dan tercatat di audit log.
+  async impersonate(targetUserId: string, actorUserId: string, actorImpersonatorId?: string) {
+    if (actorImpersonatorId) {
+      throw new ForbiddenException('Kembali ke akun admin dulu sebelum login sebagai pengguna lain');
+    }
+    if (targetUserId === actorUserId) throw new BadRequestException('Tidak bisa login sebagai diri sendiri');
+    const user = await this.prisma.users.findUnique({ where: { user_id: targetUserId } });
+    if (!user) throw new NotFoundException('User tidak ditemukan');
+    if (user.role !== 'Peserta') {
+      throw new ForbiddenException('Login sebagai hanya bisa ke akun Peserta');
+    }
+
+    await this.auditLog.log(actorUserId, 'impersonate_user', 'users', user.user_id, user.username);
+    const accessToken = await this.jwt.signAsync(
+      { sub: user.user_id, username: user.username, role: user.role, imp: actorUserId },
+      { expiresIn: '1h' },
+    );
+    return {
+      accessToken,
+      user: {
+        userId: user.user_id,
+        username: user.username,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        email: user.email,
+        role: user.role,
+      },
+    };
+  }
 
   async findAll() {
     const users = await this.prisma.users.findMany({
