@@ -8,6 +8,7 @@ import { ConferenceModule } from './conference/conference.module';
 import { ScheduleModule } from './schedule/schedule.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { PapersModule } from './papers/papers.module';
+import { PaperFeedbackModule } from './paper-feedback/paper-feedback.module';
 import { SettingsModule } from './settings/settings.module';
 import { AssignReviewerModule } from './assign-reviewer/assign-reviewer.module';
 import { UsersModule } from './users/users.module';
@@ -38,6 +39,7 @@ import { LegacySyncModule } from './legacy-sync/legacy-sync.module';
     ScheduleModule,
     AttendanceModule,
     PapersModule,
+    PaperFeedbackModule,
     SettingsModule,
     AssignReviewerModule,
     UsersModule,

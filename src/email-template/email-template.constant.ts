@@ -49,11 +49,11 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplateDefault[] = [
   },
   {
     key: 'paper_feedback',
-    label: 'Feedback Paper dari Reviewer',
-    subject: 'Feedback Paper — {{conferenceName}}',
+    label: 'Feedback Paper dari Tim Reviewer',
+    subject: 'Feedback Baru untuk Paper Anda — {{conferenceName}}',
     bodyHtml:
-      '<p>Dear {{firstName}},</p><p>Feedback reviewer untuk paper Anda <strong>{{paperTitle}}</strong> sudah tersedia.</p><p><a href="{{feedbackLink}}">Download feedback</a> (link berlaku 30 hari).</p><p>Feedback juga bisa diunduh kapan saja lewat Dashboard di {{dashboardLink}}.</p>',
-    variables: ['firstName', 'paperTitle', 'conferenceName', 'feedbackLink', 'dashboardLink'],
+      '<p>Dear {{firstName}},</p><p>Tim Reviewer mengirim feedback baru untuk paper Anda <strong>{{paperTitle}}</strong>.</p><p>Silakan login lalu lihat dan balas feedback di: <a href="{{threadLink}}">{{threadLink}}</a></p>',
+    variables: ['firstName', 'paperTitle', 'conferenceName', 'threadLink'],
   },
   {
     key: 'password_reset',

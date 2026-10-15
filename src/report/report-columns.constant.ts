@@ -61,6 +61,19 @@ export const PARTICIPANTS_COLUMNS: ReportColumn[] = [
 // key) — kalau kosong/nggak dikirim, balikin SEMUA kolom (perilaku lama,
 // backward compatible). Key yang nggak dikenal diam-diam diabaikan
 // (bukan error) — ini fitur UI non-kritis, nggak perlu nolak keras.
+// Pengirim ASLI selalu ditampilkan di laporan ini (beda dari tampilan ke
+// penulis yang cuma "Tim Reviewer").
+export const FEEDBACK_COLUMNS: ReportColumn[] = [
+  { key: 'paperTitle', label: 'Judul Paper' },
+  { key: 'conference', label: 'Conference' },
+  { key: 'createdAt', label: 'Waktu' },
+  { key: 'side', label: 'Dari Sisi' },
+  { key: 'senderName', label: 'Pengirim' },
+  { key: 'senderEmail', label: 'Email Pengirim' },
+  { key: 'body', label: 'Pesan' },
+  { key: 'fileUrl', label: 'Link Lampiran' },
+];
+
 export function resolveColumns(all: ReportColumn[], columnsParam?: string): ReportColumn[] {
   if (!columnsParam) return all;
   const requested = new Set(

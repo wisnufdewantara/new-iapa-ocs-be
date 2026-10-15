@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthorInput } from './dto/author-input.dto';
@@ -8,8 +8,6 @@ import { ConferenceService } from '../conference/conference.service';
 import { Ocs2SyncService } from '../payment/ocs2-sync.service';
 import { StoredFileLocation, resolveStoredFile } from '../common/upload-path.util';
 import { signFileToken } from '../common/file-access-token.util';
-import { MailerService } from '../mailer/mailer.service';
-import { EmailTemplateService } from '../email-template/email-template.service';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^\+?\d+$/;
@@ -34,24 +32,21 @@ function frontendBase(): string {
   return (process.env.FRONTEND_URL || 'https://dev-ocs.iapa.or.id').replace(/\/$/, '');
 }
 
-// File feedback reviewer — pola capability URL yang sama kayak dokumen
-// paper; dikasih ke reviewer (findByConference) dan ke penulisnya sendiri
-// (findMine), plus dikirim di email notifikasi.
+// File feedback LAMA (papers.feedback_url, termasuk kiriman ocs2) — pola
+// capability URL yang sama kayak dokumen paper. Feedback baru lewat thread
+// (lihat paper-feedback.service.ts), yang nampilin file lama ini sebagai
+// pesan pertama.
 export function signedFeedbackUrl(paperId: string): string {
   return `${frontendBase()}/api/papers/${paperId}/feedback?token=${signFileToken('paper-feedback', paperId)}`;
 }
 
 @Injectable()
 export class PapersService {
-  private readonly logger = new Logger(PapersService.name);
-
   constructor(
     private prisma: PrismaService,
     private auditLog: AuditLogService,
     private conferenceService: ConferenceService,
     private ocs2Sync: Ocs2SyncService,
-    private mailer: MailerService,
-    private emailTemplate: EmailTemplateService,
   ) {}
 
   // conferenceId opsional: tanpa itu = paper TERBARU dari conference mana
@@ -84,7 +79,7 @@ export class PapersService {
           paperStatus: paper.paper_status,
           documentUrl: paper.document_url ? signedDocumentUrl(paper.paper_id) : null,
           reviewFeedback: paper.review_feedback,
-          feedbackUrl: paper.feedback_url ? signedFeedbackUrl(paper.paper_id) : null,
+          feedback: await this.feedbackSummary(paper.paper_id, paper.review_feedback, paper.feedback_url),
         }
       : null;
   }
@@ -102,6 +97,38 @@ export class PapersService {
     return resolveStoredFile(paper.document_url);
   }
 
+  // Ringkasan thread feedback per paper (jumlah pesan + sisi pengirim
+  // terakhir). Query langsung di sini — sengaja nggak inject
+  // PaperFeedbackService biar nggak circular import antar file service.
+  private async feedbackSummaries(paperIds: string[]) {
+    const out = new Map<string, { count: number; lastSide: string | null }>();
+    if (paperIds.length === 0) return out;
+    const rows = await this.prisma.paper_feedback_messages.findMany({
+      where: { paper_id: { in: paperIds } },
+      orderBy: { created_at: 'asc' },
+      select: { paper_id: true, side: true },
+    });
+    for (const r of rows) {
+      const cur = out.get(r.paper_id) ?? { count: 0, lastSide: null };
+      cur.count++;
+      cur.lastSide = r.side;
+      out.set(r.paper_id, cur);
+    }
+    return out;
+  }
+
+  // Buat Dashboard/Submit Paper penulis: ada berapa pesan, dan apakah
+  // pesan terakhir dari Tim Reviewer (= ada yang perlu dibaca/dibalas).
+  private async feedbackSummary(paperId: string, reviewFeedback: string | null, feedbackUrl: string | null) {
+    const s = (await this.feedbackSummaries([paperId])).get(paperId);
+    const legacyCount = (reviewFeedback?.trim() ? 1 : 0) + (feedbackUrl ? 1 : 0);
+    const count = (s?.count ?? 0) + legacyCount;
+    return {
+      count,
+      lastFromReviewer: s ? s.lastSide === 'reviewer' : legacyCount > 0,
+    };
+  }
+
   async getFeedbackLocation(paperId: string): Promise<StoredFileLocation> {
     const paper = await this.prisma.papers.findUnique({
       where: { paper_id: paperId },
@@ -110,48 +137,6 @@ export class PapersService {
     if (!paper) throw new NotFoundException('Paper tidak ditemukan');
     if (!paper.feedback_url) throw new NotFoundException('Paper ini belum ada feedback-nya');
     return resolveStoredFile(paper.feedback_url);
-  }
-
-  // "Send Feedback" ocs2 lama: simpan file feedback reviewer + email ke
-  // submitter. Kegagalan kirim email TIDAK membatalkan file yang udah
-  // kesimpan — dibalikin sebagai emailSent:false biar FE bisa kasih tahu
-  // (penulis tetap bisa unduh dari Dashboard-nya).
-  async sendFeedback(paperId: string, feedbackUrl: string, actorUserId?: string) {
-    const paper = await this.prisma.papers.findUnique({
-      where: { paper_id: paperId },
-      select: {
-        paper_title: true,
-        conference_status: true,
-        users: { select: { first_name: true, email: true } },
-        conference_papers_conference_idToconference: { select: { conference_name: true } },
-      },
-    });
-    if (!paper) throw new NotFoundException('Paper tidak ditemukan');
-    if (paper.conference_status !== 'Accepted' && paper.conference_status !== 'Rejected') {
-      throw new BadRequestException('Feedback hanya bisa dikirim untuk paper yang sudah Accepted/Rejected');
-    }
-
-    await this.prisma.papers.update({ where: { paper_id: paperId }, data: { feedback_url: feedbackUrl } });
-    await this.auditLog.log(actorUserId, 'paper_send_feedback', 'papers', paperId, feedbackUrl);
-
-    if (!paper.users?.email) return { saved: true, emailSent: false, emailError: 'Email submitter tidak ditemukan' };
-    try {
-      const { subject, bodyHtml } = await this.emailTemplate.render('paper_feedback', {
-        firstName: paper.users.first_name,
-        paperTitle: paper.paper_title,
-        conferenceName: paper.conference_papers_conference_idToconference?.conference_name ?? 'IAPA Conference',
-        feedbackLink: signedFeedbackUrl(paperId),
-        dashboardLink: `${frontendBase()}/dashboard`,
-      });
-      await this.mailer.sendMail(paper.users.email, subject, bodyHtml, undefined, {
-        type: 'paper_feedback',
-        relatedId: paperId,
-      });
-      return { saved: true, emailSent: true };
-    } catch (err: any) {
-      this.logger.error(`Gagal kirim email feedback paper ${paperId}: ${err.message}`);
-      return { saved: true, emailSent: false, emailError: err.message as string };
-    }
   }
 
   // Validasi manual niru validatePaperWriter di PaperServiceImpl.java lama
@@ -263,6 +248,7 @@ export class PapersService {
         paper_title: true,
         document_url: true,
         feedback_url: true,
+        review_feedback: true,
         conference_status: true,
         type: true,
         sub_theme: true,
@@ -278,11 +264,15 @@ export class PapersService {
       },
     });
 
+    const summary = await this.feedbackSummaries(papers.map((p) => p.paper_id));
     return papers.map((p) => ({
       paperId: p.paper_id,
       paperTitle: p.paper_title,
       documentUrl: p.document_url ? signedDocumentUrl(p.paper_id) : null,
-      feedbackUrl: p.feedback_url ? signedFeedbackUrl(p.paper_id) : null,
+      feedbackCount:
+        (summary.get(p.paper_id)?.count ?? 0) + (p.review_feedback?.trim() ? 1 : 0) + (p.feedback_url ? 1 : 0),
+      // Pesan terakhir dari penulis = belum dibalas tim reviewer
+      feedbackAwaitingReply: summary.get(p.paper_id)?.lastSide === 'author',
       conferenceStatus: p.conference_status,
       paymentId: p.payments[0]?.payment_id ?? null,
       type: p.type,
@@ -321,7 +311,6 @@ export class PapersService {
         // Cuma disentuh kalau reviewer ngisi sesuatu — biar reject/accept
         // tanpa catatan (misal lewat bulk) nggak nimpa feedback lama jadi
         // undefined/hilang.
-        ...(reviewFeedback !== undefined ? { review_feedback: reviewFeedback } : {}),
         // Batalkan Keputusan = feedback file ikut di-reset, niru
         // ReviewPaperController lama (feedback itu milik keputusan yang
         // dibatalkan, jangan sampai masih kelihatan sama penulis).
@@ -338,6 +327,13 @@ export class PapersService {
             : null,
       },
     });
+    // Catatan opsional saat Accept/Reject sekarang masuk thread feedback
+    // (bukan lagi nimpa kolom review_feedback), atas nama reviewer-nya.
+    if (reviewFeedback?.trim() && actorUserId) {
+      await this.prisma.paper_feedback_messages.create({
+        data: { paper_id: paperId, sender_user_id: actorUserId, side: 'reviewer', body: reviewFeedback.trim() },
+      });
+    }
     const action = conferenceStatus === 'Waiting' ? 'paper_cancel_decision' : `paper_${conferenceStatus.toLowerCase()}`;
     await this.auditLog.log(actorUserId, action, 'papers', paperId);
 

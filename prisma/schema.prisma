@@ -282,6 +282,7 @@ model papers {
   users                                       users?           @relation(fields: [submitter_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
   payments                                    payments[]
   schedule                                    schedule[]
+  paper_feedback_messages                     paper_feedback_messages[]
 }
 
 model participant {
@@ -409,6 +410,7 @@ model users {
   participant                                       participant?
   payments                                          payments[]
   password_reset_tokens                             password_reset_tokens[]
+  paper_feedback_messages                           paper_feedback_messages[]
 }
 
 // Kolom ini SENGAJA nggak ada di Supabase (users di-sync dari sana) —
@@ -581,4 +583,24 @@ enum paper_status_enum {
   Assigned
   Accepted
   Rejected
+}
+
+// Thread feedback reviewer <-> penulis per paper (newocs-only, nggak ada di
+// Supabase). sender_user_id = pengirim ASLI — disimpan buat laporan admin;
+// ke penulis, semua pesan side='reviewer' ditampilkan sebagai "Tim Reviewer".
+// Feedback lama (papers.review_feedback / feedback_url, termasuk dari ocs2)
+// nggak dimigrasi ke sini — ditampilkan sebagai pesan pertama saat dibaca.
+model paper_feedback_messages {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paper_id       String   @db.Uuid
+  sender_user_id String?  @db.Uuid
+  side           String   @db.VarChar(20) // 'reviewer' | 'author'
+  body           String?
+  file_url       String?  @db.VarChar(500)
+  file_name      String?  @db.VarChar(255)
+  created_at     DateTime @default(now()) @db.Timestamp(6)
+  papers         papers   @relation(fields: [paper_id], references: [paper_id], onDelete: Cascade, onUpdate: NoAction)
+  users          users?   @relation(fields: [sender_user_id], references: [user_id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([paper_id, created_at])
 }

@@ -10,7 +10,15 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../common/permissions.guard';
 import { RequirePermission } from '../common/permissions.decorator';
 import { ReportService } from './report.service';
-import { PAPERS_COLUMNS, PARTICIPANTS_COLUMNS, PAYMENTS_COLUMNS, ReportColumn, resolveColumns } from './report-columns.constant';
+import {
+  FEEDBACK_COLUMNS,
+  PAPERS_COLUMNS,
+  PARTICIPANTS_COLUMNS,
+  PAYMENTS_COLUMNS,
+  ReportColumn,
+  resolveColumns,
+} from './report-columns.constant';
+import { PaperFeedbackService } from '../paper-feedback/paper-feedback.service';
 import { buildCsv, buildXlsx } from './report-file.util';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -28,7 +36,10 @@ function assertValidConferenceId(conferenceId?: string): void {
 @Controller('api/report')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ReportController {
-  constructor(private readonly reportService: ReportService) {}
+  constructor(
+    private readonly reportService: ReportService,
+    private readonly paperFeedback: PaperFeedbackService,
+  ) {}
 
   // Daftar kolom per jenis laporan — dipakai FE buat render checklist
   // kolom (bukan hardcode duplikat label di 2 tempat).
@@ -39,6 +50,7 @@ export class ReportController {
       papers: PAPERS_COLUMNS,
       payments: PAYMENTS_COLUMNS,
       participants: PARTICIPANTS_COLUMNS,
+      feedback: FEEDBACK_COLUMNS,
     };
   }
 
@@ -106,5 +118,20 @@ export class ReportController {
     const columns = resolveColumns(PARTICIPANTS_COLUMNS, columnsParam);
     const filenameBase = conferenceId ? `participants-${conferenceId}` : 'participants-all';
     await this.sendReport(res, rows, columns, format, filenameBase, 'Participants');
+  }
+
+  @Get('feedback/csv')
+  @RequirePermission('report', 'download')
+  async downloadFeedback(
+    @Query('conferenceId') conferenceId: string | undefined,
+    @Query('columns') columnsParam: string | undefined,
+    @Query('format') format: string | undefined,
+    @Res() res: any,
+  ) {
+    assertValidConferenceId(conferenceId);
+    const rows = await this.paperFeedback.reportRows(conferenceId);
+    const columns = resolveColumns(FEEDBACK_COLUMNS, columnsParam);
+    const filenameBase = conferenceId ? `feedback-${conferenceId}` : 'feedback-all';
+    await this.sendReport(res, rows, columns, format, filenameBase, 'Feedback');
   }
 }
