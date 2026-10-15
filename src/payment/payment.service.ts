@@ -12,6 +12,13 @@ import { Ocs2SyncService } from './ocs2-sync.service';
 import { StoredFileLocation, resolveStoredFile } from '../common/upload-path.util';
 import { signFileToken } from '../common/file-access-token.util';
 
+// Link bukti sekarang capability URL (…?token=), jadi FE nggak bisa lagi
+// nebak "ini gambar" dari ekstensi URL-nya — dihitung di sini dari URL
+// asli yang tersimpan, buat nampilin thumbnail.
+function isImageStoredUrl(url: string | null | undefined): boolean {
+  return !!url && /\.(png|jpe?g|gif|webp)(\?|$)/i.test(url);
+}
+
 export function contentTypeForPath(path: string): string {
   if (path.endsWith('.pdf')) return 'application/pdf';
   if (path.endsWith('.png')) return 'image/png';
@@ -207,6 +214,7 @@ export class PaymentService {
       proofs: payment.payment_proofs.map((p) => ({
         proofId: p.proof_id,
         proofUrl: signedTeamProofUrlByProofId(p.proof_id),
+        isImage: isImageStoredUrl(p.proof_url),
         senderName: p.sender_name,
         transferDate: p.transfer_date,
         uploadDate: p.upload_date,
@@ -690,6 +698,7 @@ export class PaymentService {
       paymentStatus: participant.payment_status,
       sentInvoice: participant.sent_invoice,
       proofUrl: participant.link_payment_upload ? signedParticipantProofUrl(participant.attendance_id) : null,
+      proofIsImage: isImageStoredUrl(participant.link_payment_upload),
       senderName: participant.payment_sender_name,
       transferDate: participant.payment_transfer_date,
     };
