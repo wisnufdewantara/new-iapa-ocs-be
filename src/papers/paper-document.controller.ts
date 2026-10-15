@@ -28,4 +28,31 @@ export class PaperDocumentController {
     res.setHeader('Content-Type', 'application/pdf');
     res.sendFile(loc.path);
   }
+
+  @Get(':paperId/feedback')
+  async downloadFeedback(
+    @Param('paperId', ParseUUIDPipe) paperId: string,
+    @Query('token') token: string | undefined,
+    @Res() res: any,
+  ) {
+    if (!verifyFileToken(token, 'paper-feedback', paperId)) {
+      throw new ForbiddenException('Link tidak valid atau sudah kedaluwarsa');
+    }
+    const loc = await this.papersService.getFeedbackLocation(paperId);
+    // Feedback yang dikirim lewat ocs2 lama nyimpen URL Supabase — redirect.
+    if (loc.kind === 'remote') return res.redirect(302, loc.url);
+    const ext = loc.path.slice(loc.path.lastIndexOf('.'));
+    const contentType =
+      ext === '.pdf'
+        ? 'application/pdf'
+        : ext === '.docx'
+          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : ext === '.doc'
+            ? 'application/msword'
+            : 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    // PDF dibuka di tab browser; Word langsung terunduh dengan nama rapi.
+    if (ext !== '.pdf') res.setHeader('Content-Disposition', `attachment; filename="feedback${ext}"`);
+    res.sendFile(loc.path);
+  }
 }

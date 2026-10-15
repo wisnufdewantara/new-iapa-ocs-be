@@ -22,6 +22,7 @@ import { UpdatePaperStatusDto } from './dto/update-paper-status.dto';
 import { UpdatePaperStatusBulkDto } from './dto/update-paper-status-bulk.dto';
 import { SubmitPaperDto } from './dto/submit-paper.dto';
 import { papersUploadOptions } from './papers-upload.config';
+import { assertValidFeedbackFile, paperFeedbackUploadOptions } from './paper-feedback-upload.config';
 
 @Controller('api/papers')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -49,6 +50,17 @@ export class PapersController {
     }
     const documentUrl = `/api/uploads/papers/${file.filename}`;
     return this.papersService.submitPaper((req.user as { userId: string }).userId, dto, documentUrl);
+  }
+
+  // "Send Feedback" — upload file feedback reviewer + email ke submitter.
+  // Ikut permission level class (papers:review), sama kayak Accept/Reject.
+  @Post(':id/feedback')
+  @UseInterceptors(FileInterceptor('feedback', paperFeedbackUploadOptions))
+  sendFeedback(@Param('id', ParseUUIDPipe) id: string, @UploadedFile() file: Express.Multer.File, @Req() req: any) {
+    if (!file) throw new BadRequestException('File feedback wajib diupload');
+    assertValidFeedbackFile(file.path, file.mimetype);
+    const feedbackUrl = `/api/uploads/papers/feedback/${file.filename}`;
+    return this.papersService.sendFeedback(id, feedbackUrl, (req.user as { userId: string }).userId);
   }
 
   @Patch(':id/status')
