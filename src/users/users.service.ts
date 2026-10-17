@@ -76,7 +76,9 @@ export class UsersService {
     const existingUsername = await this.prisma.users.findUnique({ where: { username: dto.username } });
     if (existingUsername) throw new ConflictException('Username sudah dipakai');
 
-    const existingEmail = await this.prisma.users.findUnique({ where: { email: dto.email } });
+    const existingEmail = await this.prisma.users.findFirst({
+      where: { email: { equals: dto.email.trim(), mode: 'insensitive' } },
+    });
     if (existingEmail) throw new ConflictException('Email sudah dipakai');
 
     const roleExists = await this.prisma.roles.findUnique({ where: { name: dto.role } });

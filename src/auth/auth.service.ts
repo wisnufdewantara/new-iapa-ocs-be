@@ -11,6 +11,15 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 jam
 
+// Username persis ATAU email tanpa peduli huruf besar/kecil. Data lama
+// (sync ocs2) punya akun kembar yang emailnya cuma beda kapital (mis.
+// "rina@" vs "Rina@") — dulu findFirst ambil sembarang satu, jadi user
+// bisa "nyasar" ke akun lamanya yang nggak ada paper/tagihannya.
+function loginIdentifierWhere(usernameOrEmail: string) {
+  const v = usernameOrEmail.trim();
+  return { OR: [{ username: v }, { email: { equals: v, mode: 'insensitive' as const } }] };
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -60,7 +69,9 @@ export class AuthService {
     const existingUsername = await this.prisma.users.findUnique({ where: { username: dto.username } });
     if (existingUsername) throw new ConflictException('Username already exists');
 
-    const existingEmail = await this.prisma.users.findUnique({ where: { email: dto.email } });
+    const existingEmail = await this.prisma.users.findFirst({
+      where: { email: { equals: dto.email.trim(), mode: 'insensitive' } },
+    });
     if (existingEmail) throw new ConflictException('Email already exists');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -129,8 +140,11 @@ export class AuthService {
   // email/username mana yang terdaftar (user enumeration).
   async forgotPassword(usernameOrEmail: string) {
     const genericResult = { sent: true };
+    // Kalau ada akun kembar, reset yang PALING BARU — itu yang dipakai
+    // sekarang (akun lama biasanya sisa pendaftaran tahun sebelumnya).
     const user = await this.prisma.users.findFirst({
-      where: { OR: [{ username: usernameOrEmail }, { email: usernameOrEmail }] },
+      where: loginIdentifierWhere(usernameOrEmail),
+      orderBy: { created_at: { sort: 'desc', nulls: 'last' } },
     });
     if (!user) return genericResult;
 
@@ -181,15 +195,22 @@ export class AuthService {
   }
 
   async login(usernameOrEmail: string, password: string) {
-    const user = await this.prisma.users.findFirst({
-      where: { OR: [{ username: usernameOrEmail }, { email: usernameOrEmail }] },
+    // Bisa >1 kandidat kalau ada akun kembar (lihat loginIdentifierWhere) —
+    // masuk ke akun yang password-nya cocok; kalau cocok di beberapa, yang
+    // paling baru. Password diverifikasi bcrypt, sama seperti
+    // BCryptPasswordEncoder di backend Java (akun migrasi tetap bisa login).
+    const candidates = await this.prisma.users.findMany({
+      where: loginIdentifierWhere(usernameOrEmail),
+      orderBy: { created_at: { sort: 'desc', nulls: 'last' } },
     });
+    let user: (typeof candidates)[number] | undefined;
+    for (const c of candidates) {
+      if (await bcrypt.compare(password, c.password)) {
+        user = c;
+        break;
+      }
+    }
     if (!user) throw new UnauthorizedException('Username/email atau password salah');
-
-    // Password lama diverifikasi dengan bcrypt, sama seperti BCryptPasswordEncoder
-    // di backend Java, jadi akun hasil migrasi tetap bisa login tanpa reset.
-    const valid = await bcrypt.compare(password, user.password);
-    if (!valid) throw new UnauthorizedException('Username/email atau password salah');
 
     const payload = {
       sub: user.user_id,
