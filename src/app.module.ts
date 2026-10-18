@@ -27,6 +27,7 @@ import { CertificateTemplatesModule } from './certificate-templates/certificate-
 import { CertificateValidationModule } from './certificate-validation/certificate-validation.module';
 import { ReportModule } from './report/report.module';
 import { LegacySyncModule } from './legacy-sync/legacy-sync.module';
+import { StatsModule } from './stats/stats.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { LegacySyncModule } from './legacy-sync/legacy-sync.module';
     EmailLogModule,
     ReportModule,
     LegacySyncModule,
+    StatsModule,
   ],
 })
 export class AppModule {}

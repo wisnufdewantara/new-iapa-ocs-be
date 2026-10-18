@@ -16,7 +16,10 @@ export const PERMISSION_CATALOG: Record<string, string[]> = {
   payment: ['submit', 'verify', 'manage_types', 'manage_invoices'],
   participant: ['join'],
   developer: ['view', 'sync'],
-  report: ['download'],
+  // finance_dashboard = Dashboard Keuangan (/finance), statistics = Statistik
+  // (/statistics) — dipisah dari download biar Manager bisa lihat statistik
+  // tanpa ikut lihat angka uang.
+  report: ['download', 'finance_dashboard', 'statistics'],
 };
 
 function allPermissions(): { module: string; action: string }[] {
@@ -43,6 +46,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, { module: string; action: 
     { module: 'certificate', action: 'manage_awards' },
     { module: 'certificate', action: 'manage_templates' },
     { module: 'report', action: 'download' },
+    { module: 'report', action: 'statistics' },
   ],
   Reviewer: [{ module: 'papers', action: 'review' }],
   Peserta: [
@@ -60,5 +64,6 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, { module: string; action: 
     { module: 'payment', action: 'manage_types' },
     { module: 'payment', action: 'manage_invoices' },
     { module: 'report', action: 'download' },
+    { module: 'report', action: 'finance_dashboard' },
   ],
 };

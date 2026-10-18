@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MailerService } from '../mailer/mailer.service';
 import { AuditLogService } from '../common/audit-log.service';
 import { EmailTemplateService } from '../email-template/email-template.service';
-import { presenterFee } from './pricing.constant';
+import { computePresenterTotal, effectiveFee } from './presenter-fee.util';
 import { applyUniqueCode } from './unique-code.util';
 import { generateInvoicePdf } from './invoice-pdf.util';
 import { generateReceiptPdf } from './receipt-pdf.util';
@@ -89,13 +89,13 @@ export class PaymentService {
     return { writers, submitterWriter: submitterWriter ?? null };
   }
 
+  // Logikanya sekarang di presenter-fee.util.ts (pure) biar dashboard
+  // keuangan bisa ngestimasi total tanpa nulis ke DB — di sini delegasi aja.
   private effectiveFee(
     writer: { member_status: boolean | null; payment_override: string | null; manual_fee: unknown },
     isSubmitter: boolean,
   ): number {
-    if (writer.manual_fee != null) return Number(writer.manual_fee);
-    if (isSubmitter && !writer.payment_override) return presenterFee(writer.member_status);
-    return 0;
+    return effectiveFee(writer, isSubmitter);
   }
 
   // Total = jumlah effectiveFee semua writer (biasanya cuma submitter yang
@@ -106,9 +106,7 @@ export class PaymentService {
   // dihitung dari situ — orang yang manual_fee-nya di-set emang beneran
   // mau bayar segitu, lepas dari status submitter papernya.
   private computeTotal(writers: { member_status: boolean | null; payment_override: string | null; manual_fee: unknown; writer_id: string }[], submitterWriter: { writer_id: string } | null) {
-    const hasManualFee = writers.some((w) => w.manual_fee != null);
-    if (!submitterWriter && !hasManualFee) return null;
-    return writers.reduce((sum, w) => sum + this.effectiveFee(w, w.writer_id === submitterWriter?.writer_id), 0);
+    return computePresenterTotal(writers, submitterWriter);
   }
 
   // payments.total_amount NULL = trigger DB baru bikin baris placeholder
