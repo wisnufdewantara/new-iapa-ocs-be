@@ -15,7 +15,7 @@ export const PERMISSION_CATALOG: Record<string, string[]> = {
   admin_gate: ['verify'],
   payment: ['submit', 'verify', 'manage_types', 'manage_invoices'],
   participant: ['join'],
-  developer: ['view', 'sync'],
+  developer: ['view'],
   // finance_dashboard = Dashboard Keuangan (/finance), statistics = Statistik
   // (/statistics) — dipisah dari download biar Manager bisa lihat statistik
   // tanpa ikut lihat angka uang.

@@ -8,7 +8,6 @@ import { computePresenterTotal, effectiveFee } from './presenter-fee.util';
 import { applyUniqueCode } from './unique-code.util';
 import { generateInvoicePdf } from './invoice-pdf.util';
 import { generateReceiptPdf } from './receipt-pdf.util';
-import { Ocs2SyncService } from './ocs2-sync.service';
 import { StoredFileLocation, resolveStoredFile } from '../common/upload-path.util';
 import { signFileToken } from '../common/file-access-token.util';
 
@@ -58,7 +57,6 @@ export class PaymentService {
     private mailer: MailerService,
     private auditLog: AuditLogService,
     private emailTemplate: EmailTemplateService,
-    private ocs2Sync: Ocs2SyncService,
   ) {}
 
   // Ketentuan Biaya Presenter Berkelompok: HANYA submitter paper yang
@@ -122,10 +120,6 @@ export class PaymentService {
       where: { payment_id: payment.payment_id },
       data: { total_amount: total, payment_status: 'waiting for payment' },
     });
-    // Push balik ke ocs2 biar peserta yang masih cek status bayar di
-    // sistem lama juga langsung lihat nominal yang benar. Match pakai
-    // paper_id, BUKAN payment_id (lihat komentar di ocs2-sync.service.ts).
-    await this.ocs2Sync.pushPaymentTotalByPaperId(payment.paper_id, total, 'waiting for payment');
     return updated;
   }
 
@@ -269,7 +263,6 @@ export class PaymentService {
       });
       for (const d of toDelete) {
         await this.prisma.paper_writers.delete({ where: { writer_id: d.writer_id } });
-        await this.ocs2Sync.pushWriterDelete(d.writer_id);
       }
       await this.auditLog.log(actorUserId, 'payment_delete_writers', 'payments', paymentId, JSON.stringify(deleteWriterIds));
     }
@@ -337,18 +330,6 @@ export class PaymentService {
             writer_order: nextOrder++,
           },
         });
-        await this.ocs2Sync.pushWriterCreate({
-          writerId,
-          paperId,
-          firstName: nw.firstName,
-          lastName: nw.lastName ?? '',
-          gender: nw.gender,
-          affiliation: nw.affiliation,
-          email: nw.email,
-          phoneNumber: nw.phoneNumber,
-          role: nw.role,
-          isMember: nw.isMember,
-        });
       }
       await this.auditLog.log(actorUserId, 'payment_add_writers', 'payments', paymentId, JSON.stringify(newWriters));
     }
@@ -360,18 +341,6 @@ export class PaymentService {
       data: { total_amount: total, payment_status: 'waiting for payment' },
     });
     await this.auditLog.log(actorUserId, 'payment_update_writers', 'payments', paymentId, JSON.stringify(writers));
-    if (total != null) {
-      await this.ocs2Sync.pushPaymentTotalByPaperId(paperId, total, 'waiting for payment');
-    }
-    // Push member_status + nama per writer juga — bukan cuma total-nya.
-    // Gap ini yang bikin ocs2 kadang nunjukkin data basi meski total-nya
-    // udah match (lihat komentar di Ocs2SyncService).
-    for (const w of writers) {
-      const fields: Record<string, unknown> = { member_status: w.isMember };
-      if (w.firstName !== undefined) fields.first_name = w.firstName;
-      if (w.lastName !== undefined) fields.last_name = w.lastName;
-      await this.ocs2Sync.pushWriterFields(w.writerId, fields);
-    }
     return this.paperDetail(updated.payment_id);
   }
 
@@ -481,12 +450,6 @@ export class PaymentService {
         where: { payment_id: paymentId },
         data: { payment_status: 'waiting for verification' },
       });
-      // Arah kebalikan dari ProofPullSyncService (yang ocs2 -> newocs) —
-      // ini buat kasus peserta upload bukti LANGSUNG lewat newocs, biar
-      // ocs2 juga ikut tau statusnya udah "waiting for verification".
-      if (payment.paper_id) {
-        await this.ocs2Sync.pushPaymentStatusByPaperId(payment.paper_id, 'waiting for verification');
-      }
       return { uploaded: true };
     }
 
@@ -531,9 +494,6 @@ export class PaymentService {
         where: { payment_id: paymentId },
         data: { payment_status: 'waiting for verification' },
       });
-      if (payment.paper_id) {
-        await this.ocs2Sync.pushPaymentStatusByPaperId(payment.paper_id, 'waiting for verification');
-      }
     }
     await this.auditLog.log(actorUserId, 'payment_admin_upload_proof', 'payments', paymentId);
     return { uploaded: true };
@@ -626,11 +586,6 @@ export class PaymentService {
     }
     const updated = await this.prisma.payments.findUniqueOrThrow({ where: { payment_id: paymentId } });
     await this.auditLog.log(actorUserId, `payment_${action}`, 'payments', paymentId, reason);
-    // Peserta masih cek status bayar di ocs2.iapa.or.id — wajib ikut
-    // ke-sync biar gak keliatan "belum diverifikasi" padahal udah.
-    if (updated.paper_id) {
-      await this.ocs2Sync.pushPaymentStatusByPaperId(updated.paper_id, status, description);
-    }
 
     if (action === 'accept') {
       try {
@@ -785,9 +740,6 @@ export class PaymentService {
       { type: 'invoice', relatedId: paymentId },
     );
     await this.prisma.payments.update({ where: { payment_id: paymentId }, data: { sent_invoice: true } });
-    if (payment.paper_id) {
-      await this.ocs2Sync.pushSentInvoiceByPaperId(payment.paper_id, true);
-    }
     return { sent: true };
   }
 

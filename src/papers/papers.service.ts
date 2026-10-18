@@ -5,7 +5,6 @@ import { AuthorInput } from './dto/author-input.dto';
 import { SubmitPaperDto } from './dto/submit-paper.dto';
 import { AuditLogService } from '../common/audit-log.service';
 import { ConferenceService } from '../conference/conference.service';
-import { Ocs2SyncService } from '../payment/ocs2-sync.service';
 import { StoredFileLocation, resolveStoredFile } from '../common/upload-path.util';
 import { signFileToken } from '../common/file-access-token.util';
 
@@ -46,7 +45,6 @@ export class PapersService {
     private prisma: PrismaService,
     private auditLog: AuditLogService,
     private conferenceService: ConferenceService,
-    private ocs2Sync: Ocs2SyncService,
   ) {}
 
   // conferenceId opsional: tanpa itu = paper TERBARU dari conference mana
@@ -336,13 +334,6 @@ export class PapersService {
     }
     const action = conferenceStatus === 'Waiting' ? 'paper_cancel_decision' : `paper_${conferenceStatus.toLowerCase()}`;
     await this.auditLog.log(actorUserId, action, 'papers', paperId);
-
-    // newocs sekarang sumber utama buat keputusan Accept/Reject — push
-    // balik ke ocs2/Supabase biar peserta yang masih cek status di
-    // ocs2.iapa.or.id tetap lihat data yang sama. Ocs2SyncService nangkep
-    // error-nya sendiri (nggak throw), jadi await di sini nggak bikin
-    // response ke admin gagal cuma gara-gara sync-nya bermasalah.
-    await this.ocs2Sync.pushPaperStatusByPaperId(paperId, updated.paper_status, conferenceStatus, reviewFeedback);
 
     return updated;
   }
