@@ -120,6 +120,16 @@ export class ParticipantService {
         sent_price: false,
       },
     });
+    // Kalau is_member berubah, trigger produksi (BEFORE UPDATE OF is_member)
+    // barusan nimpa status jadi 'waiting for calculation' — naikin lagi.
+    if (updated.payment_status !== 'waiting for payment') {
+      return this.serialize(
+        await this.prisma.participant.update({
+          where: { attendance_id: userId },
+          data: { payment_status: 'waiting for payment' },
+        }),
+      );
+    }
     return this.serialize(updated);
   }
 }

@@ -55,6 +55,11 @@ CREATE TRIGGER trigger_create_participant_payment
     FOR EACH ROW EXECUTE FUNCTION public.create_payment_for_participant();
 
 DROP TRIGGER IF EXISTS trigger_update_participant_payment ON sisko.participant;
+-- Definisi ini disamakan dengan PRODUKSI (dicek 2026-10-18 via
+-- pg_get_triggerdef): cuma jalan kalau is_member BERUBAH, bukan tiap UPDATE.
+-- Kode yang ngubah is_member (overrideParticipant, re-join) harus nyetel
+-- nominal/status di UPDATE terpisah sesudahnya — lihat komentar di sana.
 CREATE TRIGGER trigger_update_participant_payment
-    BEFORE UPDATE ON sisko.participant
-    FOR EACH ROW EXECUTE FUNCTION public.create_payment_for_participant();
+    BEFORE UPDATE OF is_member ON sisko.participant
+    FOR EACH ROW WHEN (NEW.is_member IS DISTINCT FROM OLD.is_member)
+    EXECUTE FUNCTION public.create_payment_for_participant();

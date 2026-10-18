@@ -727,10 +727,24 @@ export class PaymentService {
       );
     }
 
-    const updated = await this.prisma.participant.update({
-      where: { attendance_id: attendanceId },
-      data: { is_member: isMember, total_amount: BigInt(Math.round(totalAmount)) },
-    });
+    // Trigger produksi trigger_update_participant_payment (BEFORE UPDATE OF
+    // is_member, cuma kalau berubah) nimpa total_amount jadi 300rb/500rb DAN
+    // reset status ke 'waiting for calculation'. Kalau is_member & nominal
+    // diubah di 1 UPDATE, nominal custom admin hilang + bukti yang lagi
+    // nunggu verifikasi ikut "ke-reset". Jadi 2 langkah dalam 1 transaksi:
+    // ganti membership dulu (trigger jalan), baru set nominal & balikin
+    // status semula (UPDATE kedua nggak nyentuh is_member → trigger diam).
+    const restoredStatus =
+      existing.payment_status == null || existing.payment_status === 'waiting for calculation'
+        ? 'waiting for payment'
+        : existing.payment_status;
+    const [, updated] = await this.prisma.$transaction([
+      this.prisma.participant.update({ where: { attendance_id: attendanceId }, data: { is_member: isMember } }),
+      this.prisma.participant.update({
+        where: { attendance_id: attendanceId },
+        data: { total_amount: BigInt(Math.round(totalAmount)), payment_status: restoredStatus },
+      }),
+    ]);
     await this.auditLog.log(
       actorUserId,
       'payment_participant_override',
