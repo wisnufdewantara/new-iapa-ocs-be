@@ -22,9 +22,10 @@ export const DEFAULT_EMAIL_TEMPLATES: EmailTemplateDefault[] = [
   {
     key: 'certificate',
     label: 'Sertifikat (Presenter/Peserta)',
-    subject: 'Sertifikat {{type}} — IAPA Conference',
-    bodyHtml: '<p>Dear {{name}},</p><p>Terlampir e-sertifikat Anda sebagai <strong>{{type}}</strong>.</p>',
-    variables: ['name', 'type'],
+    subject: 'Sertifikat {{type}} Anda sudah tersedia — IAPA Conference',
+    bodyHtml:
+      '<p>Dear {{name}},</p><p>E-sertifikat Anda sebagai <strong>{{type}}</strong> sudah tersedia. Silakan login lalu unduh di Dashboard:</p><p><a href="{{dashboardLink}}">{{dashboardLink}}</a></p>',
+    variables: ['name', 'type', 'dashboardLink'],
   },
   {
     key: 'certificate_award',

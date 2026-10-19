@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { PDFDocument, rgb } from 'pdf-lib';
@@ -219,17 +219,67 @@ export class CertificateService {
     throw new NotFoundException('Data penerima sertifikat tidak lengkap');
   }
 
+  // Syarat sertifikat boleh diunduh sendiri / dinotifikasi (keputusan
+  // user 2026-10-19): (1) sudah ditandai HADIR, (2) pembayaran VERIFIED,
+  // (3) panitia sudah MENGATUR template khusus buat conference & tipe ini
+  // di Pemetaan Conference — template default global SENGAJA nggak
+  // dihitung, biar desain yang belum final nggak keburu bisa diunduh.
+  private async eligibility(attendanceId: string): Promise<{ eligible: boolean; reason: string | null; type: CertificateType }> {
+    const a = await this.prisma.attendance.findUnique({
+      where: { id: attendanceId },
+      select: {
+        presence: true,
+        conference_id: true,
+        writer_id: true,
+        paper_id: true,
+        participant: { select: { payment_status: true, conference_id: true } },
+      },
+    });
+    if (!a) throw new NotFoundException('Data kehadiran tidak ditemukan');
+    const type: CertificateType = a.writer_id ? 'Presenter' : 'Participant';
+    if (!a.presence) return { eligible: false, reason: 'Menunggu presensi (belum ditandai hadir)', type };
+
+    let paid = false;
+    if (a.writer_id) {
+      const pay = a.paper_id
+        ? await this.prisma.payments.findFirst({ where: { paper_id: a.paper_id }, select: { payment_status: true } })
+        : null;
+      paid = pay?.payment_status === 'verified';
+    } else {
+      paid = a.participant?.payment_status === 'verified' && a.participant?.conference_id === a.conference_id;
+    }
+    if (!paid) return { eligible: false, reason: 'Menunggu verifikasi pembayaran', type };
+
+    const mapping = a.conference_id
+      ? await this.prisma.conference_certificate_templates.findUnique({
+          where: { conference_id_cert_type: { conference_id: a.conference_id, cert_type: CERT_TYPE_KEY[type] } },
+        })
+      : null;
+    if (!mapping) return { eligible: false, reason: 'Sertifikat belum dirilis panitia', type };
+    return { eligible: true, reason: null, type };
+  }
+
+  private dashboardLink(): string {
+    return `${(process.env.FRONTEND_URL || 'https://dev-ocs.iapa.or.id').replace(/\/$/, '')}/dashboard`;
+  }
+
+  // Admin "Kirim" = email NOTIFIKASI berisi link ke Dashboard, bukan PDF
+  // terlampir — PDF baru dibuat saat peserta klik unduh (hemat storage &
+  // ukuran email). Cuma boleh kalau syarat unduh sudah terpenuhi, biar
+  // link-nya nggak nyasar ke Dashboard yang belum ada tombolnya.
   async send(attendanceId: string, type: CertificateType) {
     const recipient = await this.attendanceRecipient(attendanceId);
-    const pdfBytes = await this.renderFor(recipient, type);
-    const { subject, bodyHtml } = await this.emailTemplate.render('certificate', { name: recipient.name, type });
-    await this.mailer.sendMail(
-      recipient.email,
-      subject,
-      bodyHtml,
-      [{ filename: `Sertifikat-${attendanceId}.pdf`, content: pdfBytes }],
-      { type: 'certificate', relatedId: attendanceId },
-    );
+    const elig = await this.eligibility(attendanceId);
+    if (!elig.eligible) throw new BadRequestException(`Belum bisa dikirim: ${elig.reason}`);
+    const { subject, bodyHtml } = await this.emailTemplate.render('certificate', {
+      name: recipient.name,
+      type,
+      dashboardLink: this.dashboardLink(),
+    });
+    await this.mailer.sendMail(recipient.email, subject, bodyHtml, undefined, {
+      type: 'certificate',
+      relatedId: attendanceId,
+    });
     await this.prisma.attendance.update({
       where: { id: attendanceId },
       data: { sent_ecertificate: true, certificate_url: `/api/certificates/${attendanceId}/download?type=${encodeURIComponent(type)}` },
@@ -248,6 +298,123 @@ export class CertificateService {
       }
     }
     return results;
+  }
+
+  // Daftar sertifikat milik user sendiri (Dashboard peserta/presenter),
+  // termasuk yang BELUM bisa diunduh beserta alasannya. Pendaftaran di
+  // conference yang sudah selesai & nggak pernah diatur template-nya
+  // (mis. 2025, sertifikatnya dulu dikirim lewat sistem lama) disembunyikan.
+  async findMine(userId: string) {
+    const user = await this.prisma.users.findUnique({ where: { user_id: userId }, select: { email: true } });
+    if (!user) return [];
+
+    const [participant, writers, mappings] = await Promise.all([
+      this.prisma.participant.findUnique({
+        where: { attendance_id: userId },
+        select: { conference_id: true, conference: { select: { conference_name: true, status: true } } },
+      }),
+      this.prisma.paper_writers.findMany({
+        where: {
+          role: 'presenter',
+          OR: [{ user_id: userId }, { email: { equals: user.email, mode: 'insensitive' } }],
+          papers: { conference_status: 'Accepted' },
+        },
+        select: {
+          writer_id: true,
+          papers: {
+            select: {
+              paper_title: true,
+              conference_id: true,
+              conference_papers_conference_idToconference: { select: { conference_name: true, status: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.conference_certificate_templates.findMany({ select: { conference_id: true } }),
+    ]);
+    const mappedConfs = new Set(mappings.map((m) => m.conference_id));
+
+    type Candidate = {
+      type: CertificateType;
+      conferenceId: string | null;
+      conferenceName: string;
+      ended: boolean;
+      paperTitle: string | null;
+      where: { participant_id: string } | { writer_id: string };
+    };
+    const candidates: Candidate[] = [];
+    if (participant) {
+      candidates.push({
+        type: 'Participant',
+        conferenceId: participant.conference_id,
+        conferenceName: participant.conference?.conference_name ?? '',
+        ended: participant.conference?.status === 'ended',
+        paperTitle: null,
+        where: { participant_id: userId },
+      });
+    }
+    const seenWriters = new Set<string>();
+    for (const w of writers) {
+      if (seenWriters.has(w.writer_id)) continue;
+      seenWriters.add(w.writer_id);
+      const conf = w.papers.conference_papers_conference_idToconference;
+      candidates.push({
+        type: 'Presenter',
+        conferenceId: w.papers.conference_id,
+        conferenceName: conf?.conference_name ?? '',
+        ended: conf?.status === 'ended',
+        paperTitle: w.papers.paper_title,
+        where: { writer_id: w.writer_id },
+      });
+    }
+
+    const out: {
+      attendanceId: string | null;
+      type: CertificateType;
+      conferenceName: string;
+      paperTitle: string | null;
+      eligible: boolean;
+      reason: string | null;
+    }[] = [];
+    for (const c of candidates) {
+      if (c.ended && (!c.conferenceId || !mappedConfs.has(c.conferenceId))) continue;
+      const att = c.conferenceId
+        ? await this.prisma.attendance.findFirst({ where: { ...c.where, conference_id: c.conferenceId }, select: { id: true } })
+        : null;
+      const elig = att
+        ? await this.eligibility(att.id)
+        : { eligible: false, reason: 'Menunggu presensi (belum ditandai hadir)' };
+      out.push({
+        attendanceId: att?.id ?? null,
+        type: c.type,
+        conferenceName: c.conferenceName,
+        paperTitle: c.paperTitle,
+        eligible: elig.eligible,
+        reason: elig.reason,
+      });
+    }
+    return out;
+  }
+
+  // Unduh sendiri — cek kepemilikan (baris kehadiran itu punya user ini)
+  // DAN syarat, baru render on-the-fly (nggak ada file yang disimpan).
+  async downloadMine(userId: string, attendanceId: string) {
+    const user = await this.prisma.users.findUnique({ where: { user_id: userId }, select: { email: true } });
+    const a = await this.prisma.attendance.findUnique({
+      where: { id: attendanceId },
+      select: { participant_id: true, paper_writers: { select: { user_id: true, email: true } } },
+    });
+    const owns =
+      !!a &&
+      !!user &&
+      (a.participant_id === userId ||
+        a.paper_writers?.user_id === userId ||
+        (!!a.paper_writers && a.paper_writers.email.toLowerCase() === user.email.toLowerCase()));
+    if (!owns) throw new ForbiddenException('Sertifikat ini bukan milik Anda');
+    const elig = await this.eligibility(attendanceId);
+    if (!elig.eligible) throw new BadRequestException(elig.reason ?? 'Sertifikat belum bisa diunduh');
+    const recipient = await this.attendanceRecipient(attendanceId);
+    return this.renderFor(recipient, elig.type);
   }
 
   async downloadByAttendance(attendanceId: string, type: CertificateType) {

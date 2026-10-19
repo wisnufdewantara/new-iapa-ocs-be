@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Param, ParseUUIDPipe, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, Param, ParseUUIDPipe, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../common/permissions.guard';
@@ -56,5 +56,28 @@ export class CertificateController {
     @Param('award') award: 'best_paper' | 'best_presenter',
   ) {
     return this.certificateService.sendAward(conferenceId, award);
+  }
+}
+
+// Sisi peserta/presenter: lihat & unduh sertifikat SENDIRI. Controller
+// terpisah karena CertificateController di-guard certificate:manage di
+// level class (nggak bisa di-override per method). Cukup login — scope
+// "punya sendiri" dicek di service.
+@Controller('api/my-certificates')
+@UseGuards(JwtAuthGuard)
+export class MyCertificateController {
+  constructor(private certificateService: CertificateService) {}
+
+  @Get()
+  findMine(@Req() req: any) {
+    return this.certificateService.findMine((req.user as { userId: string }).userId);
+  }
+
+  @Get(':attendanceId/download')
+  async download(@Param('attendanceId', ParseUUIDPipe) attendanceId: string, @Req() req: any, @Res() res: Response) {
+    const pdf = await this.certificateService.downloadMine((req.user as { userId: string }).userId, attendanceId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="Sertifikat-IAPA.pdf"');
+    res.send(pdf);
   }
 }
