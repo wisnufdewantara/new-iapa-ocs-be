@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CONFERENCE_STATUSES, ConferenceStatus } from '../conference-status';
 
 export class UpdateConferenceDto {
@@ -18,4 +18,10 @@ export class UpdateConferenceDto {
   @IsOptional()
   @IsIn(CONFERENCE_STATUSES)
   status?: ConferenceStatus;
+
+  // Deskripsi acara di homepage — teks polos (baris baru dipertahankan).
+  @IsOptional()
+  @IsString()
+  @MaxLength(3000)
+  description?: string;
 }

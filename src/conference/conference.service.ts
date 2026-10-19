@@ -18,6 +18,7 @@ export class ConferenceService {
         conference_date: new Date(dto.conferenceDate),
         conference_end_date: dto.conferenceEndDate ? new Date(dto.conferenceEndDate) : null,
         status: dto.status ?? 'coming_soon',
+        description: dto.description?.trim() || null,
         conference_sub_theme: dto.subThemes?.length
           ? { create: dto.subThemes.map((sub_theme) => ({ sub_theme })) }
           : undefined,
@@ -36,6 +37,8 @@ export class ConferenceService {
         conference_date: dto.conferenceDate ? new Date(dto.conferenceDate) : undefined,
         conference_end_date: dto.conferenceEndDate ? new Date(dto.conferenceEndDate) : undefined,
         status: dto.status,
+        // undefined = nggak disentuh; string kosong = dikosongkan
+        description: dto.description !== undefined ? dto.description.trim() || null : undefined,
       },
     });
     await this.auditLog.log(actorUserId, 'update_conference', 'conference', conferenceId);
@@ -66,6 +69,7 @@ export class ConferenceService {
         conference_date: true,
         conference_end_date: true,
         status: true,
+        description: true,
       },
     });
   }

@@ -148,6 +148,8 @@ model conference {
   presenter_certificate_sent              Boolean                @default(false)
   conference_end_date                     DateTime?              @db.Date
   status                                  String                 @default("coming_soon") @db.VarChar(20)
+  // Deskripsi acara buat homepage (diisi admin di form Conference).
+  description                             String?
   attendance                              attendance[]
   conference_settings                     conference_settings[]
   conference_posters                      conference_posters[]

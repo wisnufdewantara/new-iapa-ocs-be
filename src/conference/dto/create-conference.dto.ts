@@ -1,4 +1,4 @@
-import { IsArray, IsDateString, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsArray, IsDateString, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { CONFERENCE_STATUSES, ConferenceStatus } from '../conference-status';
 
 export class CreateConferenceDto {
@@ -21,4 +21,10 @@ export class CreateConferenceDto {
   @IsOptional()
   @IsIn(CONFERENCE_STATUSES)
   status?: ConferenceStatus;
+
+  // Deskripsi acara di homepage — teks polos (baris baru dipertahankan).
+  @IsOptional()
+  @IsString()
+  @MaxLength(3000)
+  description?: string;
 }
