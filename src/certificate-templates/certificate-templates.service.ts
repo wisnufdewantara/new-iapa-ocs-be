@@ -15,6 +15,8 @@ const MAPPING_KEY_TO_CERT_TYPE: Record<keyof UpdateTemplateMappingsDto, CertType
   bestPresenter: 'best_presenter',
 };
 
+export const CERTIFICATES_PUBLISHED_KEY = 'certificates_published';
+
 @Injectable()
 export class CertificateTemplatesService {
   constructor(
@@ -263,9 +265,10 @@ export class CertificateTemplatesService {
   }
 
   async getMappings(conferenceId: string) {
-    const [rows, defaultTemplate] = await Promise.all([
+    const [rows, defaultTemplate, published] = await Promise.all([
       this.prisma.conference_certificate_templates.findMany({ where: { conference_id: conferenceId } }),
       this.prisma.certificate_templates.findFirst({ where: { is_default: true }, select: { id: true, name: true } }),
+      this.isPublished(conferenceId),
     ]);
     const byCertType = new Map(rows.map((r) => [r.cert_type, r.template_id]));
     return {
@@ -274,7 +277,30 @@ export class CertificateTemplatesService {
       bestPaper: byCertType.get('best_paper') ?? null,
       bestPresenter: byCertType.get('best_presenter') ?? null,
       defaultTemplate,
+      published,
     };
+  }
+
+  // Rilis sertifikat per conference — DIPISAH dari pemetaan template:
+  // memetakan template = nyiapin desain, publish = baru boleh diunduh
+  // peserta (lihat CertificateService.eligibility). Disimpan di
+  // conference_settings (key-value yang udah ada) biar nggak perlu kolom baru.
+  async isPublished(conferenceId: string): Promise<boolean> {
+    const row = await this.prisma.conference_settings.findUnique({
+      where: { conference_id_setting_key: { conference_id: conferenceId, setting_key: CERTIFICATES_PUBLISHED_KEY } },
+      select: { setting_value: true },
+    });
+    return row?.setting_value === 'true';
+  }
+
+  async setPublished(conferenceId: string, published: boolean, actorUserId?: string) {
+    await this.prisma.conference_settings.upsert({
+      where: { conference_id_setting_key: { conference_id: conferenceId, setting_key: CERTIFICATES_PUBLISHED_KEY } },
+      create: { conference_id: conferenceId, setting_key: CERTIFICATES_PUBLISHED_KEY, setting_value: String(published) },
+      update: { setting_value: String(published) },
+    });
+    await this.auditLog.log(actorUserId, published ? 'certificates_publish' : 'certificates_unpublish', 'conference', conferenceId);
+    return { published };
   }
 
   async putMappings(conferenceId: string, dto: UpdateTemplateMappingsDto) {

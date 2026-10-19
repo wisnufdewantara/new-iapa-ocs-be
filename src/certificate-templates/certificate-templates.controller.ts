@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -57,6 +58,16 @@ export class CertificateTemplatesController {
   @Get('mappings')
   getMappings(@Query('conferenceId', ParseUUIDPipe) conferenceId: string) {
     return this.templates.getMappings(conferenceId);
+  }
+
+  @Put('mappings/:conferenceId/publish')
+  setPublished(
+    @Param('conferenceId', ParseUUIDPipe) conferenceId: string,
+    @Body('published') published: unknown,
+    @Req() req: any,
+  ) {
+    if (typeof published !== 'boolean') throw new BadRequestException('published harus true/false');
+    return this.templates.setPublished(conferenceId, published, (req.user as { userId: string }).userId);
   }
 
   @Put('mappings/:conferenceId')

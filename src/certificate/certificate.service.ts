@@ -223,7 +223,8 @@ export class CertificateService {
   // user 2026-10-19): (1) sudah ditandai HADIR, (2) pembayaran VERIFIED,
   // (3) panitia sudah MENGATUR template khusus buat conference & tipe ini
   // di Pemetaan Conference — template default global SENGAJA nggak
-  // dihitung, biar desain yang belum final nggak keburu bisa diunduh.
+  // dihitung — DAN (4) sudah klik Publish buat conference itu, biar desain
+  // yang belum final nggak keburu bisa diunduh.
   private async eligibility(attendanceId: string): Promise<{ eligible: boolean; reason: string | null; type: CertificateType }> {
     const a = await this.prisma.attendance.findUnique({
       where: { id: attendanceId },
@@ -256,6 +257,11 @@ export class CertificateService {
         })
       : null;
     if (!mapping) return { eligible: false, reason: 'Sertifikat belum dirilis panitia', type };
+    // Template udah dipetakan belum tentu udah final — baru boleh diunduh
+    // kalau panitia klik Publish (Pengaturan Sertifikat → Pemetaan Conference).
+    if (!(await this.templates.isPublished(a.conference_id as string))) {
+      return { eligible: false, reason: 'Sertifikat belum dirilis panitia', type };
+    }
     return { eligible: true, reason: null, type };
   }
 
