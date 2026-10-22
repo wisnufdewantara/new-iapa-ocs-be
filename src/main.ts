@@ -8,6 +8,15 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Body parser dipasang manual dengan inflate: false — body request yang
+  // dikompres (Content-Encoding gzip/deflate/br) langsung ditolak 415,
+  // nggak pernah masuk decoder. Mitigasi CVE-2026-111497 (out-of-bounds
+  // write di decoder Brotli Node.js, Okt 2026); browser nggak pernah kirim
+  // body terkompres, jadi aman buat klien normal. Karena dipasang di sini,
+  // Nest otomatis melewati parser bawaannya (dicek dari nama fungsi).
+  // Opsi lain sama dengan default Nest (limit 100kb, urlencoded extended).
+  app.useBodyParser('json', { inflate: false });
+  app.useBodyParser('urlencoded', { inflate: false, extended: true });
   app.enableCors();
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   // Dokumen paper & bukti transfer SENGAJA diblokir dari static route di
